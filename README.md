@@ -10,3 +10,14 @@ The following must be available as shared libraries:
 
 - openMVG
 - VRPN
+
+## Development
+
+To get linting working in VSCode, run the following:
+
+```
+cargo clean
+bear -- cargo build
+```
+
+See https://github.com/dtolnay/cxx/issues/684

@@ -1,5 +1,5 @@
 [package]
-name = "hub"
+name = "posenet-vr-hub"
 version = "0.1.0"
 authors = ["Oliver Evans <oliverevans96@gmail.com>"]
 edition = "2018"
@@ -7,3 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# cxx = "1.0"
+cxx = {path = "/home/oliver/code/rust/cxx"}
+nalgebra = "0.24"
+
+[build-dependencies]
+cxx-build = "1.0"
+dotenv = "0.15"

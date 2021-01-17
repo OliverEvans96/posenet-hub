@@ -1,0 +1,8 @@
+{
+    "rust-analyzer.diagnostics.disabled": [
+        "missing-unsafe"
+    ],
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder/**}"
+    ]
+}
