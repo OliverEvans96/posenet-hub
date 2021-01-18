@@ -6,6 +6,13 @@
     "rust-analyzer.diagnostics.disabled": [
         "missing-unsafe"
     ],
+    // Fix proto imports
+    "protoc": {
+        "path": "/usr/bin/protoc",
+        "options": [
+            "--proto_path=${workspaceRoot}/proto",
+        ]
+    },
     "files.associations": {
         "*.ipp": "cpp",
         "array": "cpp",
