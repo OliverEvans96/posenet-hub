@@ -1,4 +1,8 @@
 {
+    // Fix tonic proc macro imports
+    "rust-analyzer.cargo.loadOutDirsFromCheck": true,
+    "rust-analyzer.procMacro.enable": true,
+    // rust-analyzer can't deal with some of cxx
     "rust-analyzer.diagnostics.disabled": [
         "missing-unsafe"
     ],
