@@ -1,8 +1,9 @@
+use core::f64;
 use std::fmt;
 
 use cxx::{CxxVector, UniquePtr, UniquePtrTarget};
 use nalgebra::{self, Matrix3x4, MatrixMN};
-use nalgebra::{Point2, Point3, Vector2, Vector3};
+use nalgebra::{Point2, Point3, Rotation3, Vector3};
 
 #[cxx::bridge]
 mod ffi {
@@ -144,6 +145,19 @@ impl fmt::Debug for ffi::Mat3X {
     }
 }
 
+impl fmt::Debug for ffi::Vec3 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let cxx_str = ffi::format_vec3(self);
+        let s = cxx_str
+            .as_ref()
+            .expect("Pointer had no value.")
+            .to_str()
+            .expect("Could not convert string");
+
+        f.write_str(s)
+    }
+}
+
 impl fmt::Debug for ffi::Vec4 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let cxx_str = ffi::format_vec4(self);
@@ -157,7 +171,7 @@ impl fmt::Debug for ffi::Vec4 {
     }
 }
 
-fn triangulate(
+pub fn triangulate(
     points2d: &[Point2<f64>],
     camera_poses: &mut [Matrix3x4<f64>],
 ) -> UniquePtr<ffi::Vec4> {
@@ -179,6 +193,40 @@ fn triangulate(
     return x3d;
 }
 
+pub fn triangulate_many(
+    points2d_slice: &[&[Point2<f64>]],
+    camera_poses: &mut [Matrix3x4<f64>],
+) -> Vec<UniquePtr<ffi::Vec4>> {
+    points2d_slice
+        .iter()
+        .map(|p2d| triangulate(p2d, camera_poses))
+        .collect()
+}
+
+pub fn create_camera_matrix(center: Point3<f64>, rotation: Rotation3<f64>) -> Matrix3x4<f64> {
+    // Convert to plain matrices
+    let c = center.coords;
+    let r = rotation.matrix();
+
+    // Convert camera center to translation
+    // See https://en.wikipedia.org/wiki/Camera_matrix#The_camera_position
+    // and openMVG/src/openMVG/multiview/test_data_sets.cpp
+    let t = -r * c;
+
+    // Concatenate columns: p = [c | t]
+    let mut cols: Vec<_> = r.column_iter().collect();
+    cols.push(t.column(0));
+    Matrix3x4::<f64>::from_columns(cols.as_slice())
+}
+
+/// Project a single 3D point onto a single camera
+pub fn get_projection(x3d: Point3<f64>, p: Matrix3x4<f64>) -> Point2<f64> {
+    let x3d_h = x3d.to_homogeneous();
+    let x2d_h = p * x3d_h;
+    let x2d = Point2::<f64>::from_homogeneous(x2d_h);
+    x2d.expect("Point was not homogeneous, projection failed.")
+}
+
 /*
 fn triangulate_many<T: nalgebra::Scalar>(
     points2d_slice: &[&[Point2<T>]],
@@ -192,26 +240,10 @@ fn triangulate_many<T: nalgebra::Scalar>(
 }
 */
 
-pub fn _test_rand_triangulate() {
-    let nviews = 5;
-    let mut points2d = Vec::<Point2<f64>>::with_capacity(nviews);
-    let mut camera_poses = Vec::<Matrix3x4<f64>>::with_capacity(nviews);
-
-    for _ in 0..nviews {
-        let point2d = Point2::from(Vector2::new_random());
-        let camera_pose = Matrix3x4::new_random();
-        points2d.push(point2d);
-        camera_poses.push(camera_pose);
-    }
-
-    let x3d: UniquePtr<ffi::Vec4> = triangulate(points2d.as_slice(), camera_poses.as_mut_slice());
-    println!("RAND x3d = {:?}", x3d);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Point2, Point3, Vector2, Vector3};
+    use nalgebra::{Point2, Point3, Vector2};
 
     #[test]
     fn it_works() {
@@ -251,50 +283,65 @@ mod tests {
 
     #[test]
     fn test_rand_triangulate() {
-        _test_rand_triangulate()
+        let nviews = 5;
+        let mut points2d = Vec::<Point2<f64>>::with_capacity(nviews);
+        let mut camera_poses = Vec::<Matrix3x4<f64>>::with_capacity(nviews);
+
+        for _ in 0..nviews {
+            let point2d = Point2::from(Vector2::new_random());
+            let camera_pose = Matrix3x4::new_random();
+            points2d.push(point2d);
+            camera_poses.push(camera_pose);
+        }
+
+        let x3d: UniquePtr<ffi::Vec4> =
+            triangulate(points2d.as_slice(), camera_poses.as_mut_slice());
+        println!("RAND x3d = {:?}", x3d);
     }
 
     /*
-    // TODO: Run this real test
+    /// Project a single 3D point onto multiple camera
+    fn get_projections(x3d: Point3<f64>, camera_poses: &[Matrix3x4<f64>]) -> Vec<Point2<f64>> {
+        let nposes = camera_poses.len();
+        let x2d_vec = Vec::<Point2<f64>>::with_capacity(nposes);
+
+        x2d_vec
+    }
+    */
+
+    #[test]
+    fn test_projection() {
+        let c = Point3::<f64>::new(1.0, 0.9, 0.1);
+        let r = Rotation3::from_euler_angles(0.0, 0.1, 0.2);
+        let p = create_camera_matrix(c, r);
+        let x3d = Point3::<f64>::new(1.0, -1.0, 2.0);
+        let x2d = get_projection(x3d, p);
+        println!("c = {}", c);
+        println!("r = {}", r.matrix());
+        println!("x3d = {}", x3d);
+        println!("x2d = {}", x2d);
+    }
+
     #[test]
     fn test_triangulate() {
         // let d = ffi::create_nview_dataset(3, 4);
-        let nviews = 3;
-        let npoints = 7;
+        let nviews = 8;
+        let npoints = 3;
 
-        // Create 3D points and cameras
-        let x3d_vec: Vec<Vector3<f64>> = (0..npoints).map(|_| Vector3::new_random()).collect();
-        let p_vec: Vec<Matrix3x4<f64>> = (0..nviews).map(|_| Matrix3x4::new_random()).collect();
-
-        // Combine 3D points into a matrix
-        let x3d_mat = Matrix3xN::<f64>::from_columns(x3d_vec.as_slice());
-
-        // Create homogeneous projections for each camera
-        let x2d_h_vec: Vec<Vector3<f64>> = x3d_vec.iter().zip(p_vec.iter()).collect();
-
-        let x2d_vec: Vec<Point2<f64>> = x2d_h_vec
-            .iter()
-            .map(|&x2d_h| {
-                Point2::<f64>::from_homogeneous(x2d_h)
-                    .expect("Vector was apparently not homogeneous")
-            })
-            .collect();
-
-        println!("x3d_mat = {}", x3d_mat);
-
-        for i in 0..nviews {
-            println!("p[{}] = {}", i, p_vec[i]);
-            println!("x2d[{}] = {}", i, x2d_vec[i]);
-        }
+        // Create 3D point and cameras
+        let mut p_vec: Vec<Matrix3x4<f64>> = (0..nviews).map(|_| Matrix3x4::new_random()).collect();
 
         for i in 0..npoints {
-            let x2d = x2d_vec[i];
-
-            // .map(|(x3d, p)| p * Point3::<f64>::from(*x3d).to_homogeneous())
-
-            // let x3d_t = triangulate(x2d, p_vec);
-            println!("x3d = {:?}", x3d_t);
+            // Create 3D point
+            let x3d: Point3<_> = Vector3::<f64>::new_random().into();
+            // Project onto each camera
+            let x2d_vec: Vec<_> = p_vec.iter().map(|&p| get_projection(x3d, p)).collect();
+            // Reconstruct
+            let x3d_recon = triangulate(x2d_vec.as_slice(), &mut p_vec);
+            // Check
+            println!("i = {}", i);
+            println!("x3d = {}", x3d);
+            println!("x3d_recon = {:?}", x3d_recon);
         }
     }
-    */
 }
