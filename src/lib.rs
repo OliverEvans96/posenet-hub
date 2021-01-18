@@ -37,11 +37,11 @@ mod ffi {
         fn format_mat34(a: &Mat34) -> UniquePtr<CxxString>;
         fn format_vec3(a: &Vec3) -> UniquePtr<CxxString>;
         fn format_vec4(a: &Vec4) -> UniquePtr<CxxString>;
-        fn mat2x_from_data(slice: &mut [f64], cols: usize) -> UniquePtr<Mat2X>;
-        fn mat3x_from_data(slice: &mut [f64], cols: usize) -> UniquePtr<Mat3X>;
-        fn mat34_from_data(slice: &mut [f64]) -> UniquePtr<Mat34>;
+        fn mat2x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat2X>;
+        fn mat3x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat3X>;
+        fn mat34_from_data(slice: &[f64]) -> UniquePtr<Mat34>;
 
-        fn mat34_vec_from_data(slice: &[&mut [f64]]) -> UniquePtr<CxxVector<Mat34>>;
+        fn mat34_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Mat34>>;
 
         // fn print_mat34_vec(v: UniquePtr<CxxVector<Mat34>>);
 
@@ -68,39 +68,35 @@ trait ToEigen {
 
 impl ToEigen for Matrix2xN<f64> {
     type T = ffi::Mat2X;
-    fn to_eigen(mut self) -> UniquePtr<Self::T> {
+    fn to_eigen(self) -> UniquePtr<Self::T> {
         let (_rows, cols) = self.shape();
-        let slice = self.as_mut_slice();
+        let slice = self.as_slice();
         ffi::mat2x_from_data(slice, cols)
     }
 }
 
 impl ToEigen for Matrix3xN<f64> {
     type T = ffi::Mat3X;
-    fn to_eigen(mut self) -> UniquePtr<Self::T> {
+    fn to_eigen(self) -> UniquePtr<Self::T> {
         let (_rows, cols) = self.shape();
-        let slice = self.as_mut_slice();
+        let slice = self.as_slice();
         ffi::mat3x_from_data(slice, cols)
     }
 }
 
 impl ToEigen for Matrix3x4<f64> {
     type T = ffi::Mat34;
-    fn to_eigen(mut self) -> UniquePtr<Self::T> {
-        let slice = self.as_mut_slice();
+    fn to_eigen(self) -> UniquePtr<Self::T> {
+        let slice = self.as_slice();
         ffi::mat34_from_data(slice)
     }
 }
 
-impl ToEigen for &mut [Matrix3x4<f64>] {
+impl ToEigen for &[Matrix3x4<f64>] {
     type T = CxxVector<ffi::Mat34>;
     fn to_eigen(self) -> UniquePtr<Self::T> {
-        let mut slices = Vec::<&mut [f64]>::with_capacity(self.len());
-        for mat in self.iter_mut() {
-            let slice = mat.as_mut_slice();
-            slices.push(slice);
-        }
-        ffi::mat34_vec_from_data(slices.as_mut_slice())
+        let slices: Vec<_> = self.iter().map(|mat| mat.as_slice()).collect();
+        ffi::mat34_vec_from_data(slices.as_slice())
     }
 }
 
@@ -173,7 +169,7 @@ impl fmt::Debug for ffi::Vec4 {
 
 pub fn triangulate(
     points2d: &[Point2<f64>],
-    camera_poses: &mut [Matrix3x4<f64>],
+    camera_poses: &[Matrix3x4<f64>],
 ) -> UniquePtr<ffi::Vec4> {
     assert_eq!(points2d.len(), camera_poses.len());
     let x2d_h_mat = Matrix3xN::<f64>::from_columns(

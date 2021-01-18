@@ -15,33 +15,36 @@ unique_ptr<string> format_mat34(const Mat34 &A) { return format_mat(A); }
 unique_ptr<string> format_vec3(const Vec3 &A) { return format_mat(A); }
 unique_ptr<string> format_vec4(const Vec4 &A) { return format_mat(A); }
 
-unique_ptr<Mat2X> mat2x_from_data(rust::Slice<double> slice, size_t cols) {
+unique_ptr<Mat2X> mat2x_from_data(rust::Slice<const double> slice,
+                                  size_t cols) {
     const int rows = 2;
-    Map<Mat2X> mf(slice.data(), rows, cols);
+    Map<const Mat2X> mf(slice.data(), rows, cols);
     return make_unique<Mat2X>(mf);
 }
 
-unique_ptr<Mat3X> mat3x_from_data(rust::Slice<double> slice, size_t cols) {
+unique_ptr<Mat3X> mat3x_from_data(rust::Slice<const double> slice,
+                                  size_t cols) {
     const int rows = 3;
-    Map<Mat3X> mf(slice.data(), rows, cols);
+    Map<const Mat3X> mf(slice.data(), rows, cols);
     return make_unique<Mat3X>(mf);
 }
 
-unique_ptr<Mat34> mat34_from_data(rust::Slice<double> slice) {
+unique_ptr<Mat34> mat34_from_data(rust::Slice<const double> slice) {
     const int rows = 3;
     const int cols = 4;
-    Map<Mat34> mf(slice.data(), rows, cols);
+    Map<const Mat34> mf(slice.data(), rows, cols);
     return make_unique<Mat34>(mf);
 }
 
 unique_ptr<vector<Mat34>> mat34_vec_from_data(
-    const rust::Slice<const rust::Slice<double>> slices) {
+    const rust::Slice<const rust::Slice<const double>> slices) {
     const int rows = 3;
     const int cols = 4;
     auto vp = make_unique<vector<Mat34>>();
-    for (rust::Slice<const rust::Slice<double>>::iterator it = slices.begin();
+    for (rust::Slice<const rust::Slice<const double>>::iterator it =
+             slices.begin();
          it != slices.end(); ++it) {
-        Map<Mat34> mf(it->data(), rows, cols);
+        Map<const Mat34> mf(it->data(), rows, cols);
         Mat34 mat(mf);
         vp->push_back(mat);
     }

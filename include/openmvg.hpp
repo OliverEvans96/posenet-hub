@@ -22,12 +22,12 @@ unique_ptr<string> format_mat34(const Mat34 &A);
 unique_ptr<string> format_vec3(const Vec3 &A);
 unique_ptr<string> format_vec4(const Vec4 &A);
 
-unique_ptr<Mat2X> mat2x_from_data(rust::Slice<double> slice, size_t cols);
-unique_ptr<Mat3X> mat3x_from_data(rust::Slice<double> slice, size_t cols);
-unique_ptr<Mat34> mat34_from_data(rust::Slice<double> slice);
+unique_ptr<Mat2X> mat2x_from_data(rust::Slice<const double> slice, size_t cols);
+unique_ptr<Mat3X> mat3x_from_data(rust::Slice<const double> slice, size_t cols);
+unique_ptr<Mat34> mat34_from_data(rust::Slice<const double> slice);
 
 unique_ptr<vector<Mat34>> mat34_vec_from_data(
-    rust::Slice<const rust::Slice<double>> slices);
+    rust::Slice<const rust::Slice<const double>> slices);
 
 void print_mat34_vec(unique_ptr<vector<Mat34>> vp);
 
