@@ -1,6 +1,4 @@
-#include "posenet-vr-hub/include/openmvg.hpp"
-
-// Matrix basics
+#include "posenet-vr-hub/include/eigen.hpp"
 
 // Format
 
@@ -76,39 +74,4 @@ rust::Slice<const double> vec4_to_slice(const unique_ptr<Vec4> &mat_ptr) {
     Map<Vec4> mf(data_ptr, rows);
     rust::Slice<const double> slice{mf.data(), (size_t)mf.size()};
     return slice;
-}
-
-// Triangulation
-
-/*
-void triangulate_nview() {
-    for (int i = 0; i < npoints; ++i) {
-        // Collect the image of point i in each frame.
-        Mat3X xs(3, nviews);
-        for (int j = 0; j < nviews; ++j) {
-            xs.col(j) = d._x[j].col(i).homogeneous();
-        }
-        Vec4 X;
-        TriangulateNView(xs, Ps, &X);
-
-        // Check reprojection error. Should be nearly zero.
-        for (int j = 0; j < nviews; ++j) {
-            const Vec3 x_reprojected = Ps[j] * X;
-            const double error =
-                (x_reprojected.hnormalized() - xs.col(j).hnormalized()).norm();
-            EXPECT_NEAR(error, 0.0, 1e-9);
-        }
-    }
-}
-}
-*/
-
-unique_ptr<Vec4> triangulate_nview(
-    // x's are landmark bearing vectors in each camera
-    const unique_ptr<Mat3X> x,
-    // Ps are projective cameras
-    const unique_ptr<std::vector<Mat34>> Ps) {
-    auto X = make_unique<Vec4>();
-    TriangulateNView(*x, *Ps, X.get());
-    return X;
 }

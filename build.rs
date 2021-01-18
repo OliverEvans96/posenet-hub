@@ -7,16 +7,25 @@ fn main() {
     // println!("cargo:rustc-link-search=/home/oliver/code/rust/eigen-ndarray/cpp");
     // println!("cargo:rustc-link-lib=dylib=stdc++");
 
+    println!("cargo:rerun-if-changed=include/eigen.hpp");
+    println!("cargo:rerun-if-changed=src/openmvg/eigen.cpp");
+
     println!("cargo:rerun-if-changed=include/openmvg.hpp");
-    println!("cargo:rerun-if-changed=src/openmvg.cpp");
+    println!("cargo:rerun-if-changed=src/openmvg/openmvg.cpp");
 
     println!("EIGEN_INCLUDE_DIR = {}", eigen_include_dir);
 
-    cxx_build::bridge("src/lib.rs")
-        .file("src/openmvg.cpp")
-        .include(eigen_include_dir)
+    cxx_build::bridge("src/openmvg/eigen.rs")
+        .file("src/openmvg/eigen.cpp")
+        .include(&eigen_include_dir)
         .flag_if_supported("-std=c++14")
-        .compile("posenet-vr-hub");
+        .compile("posenet_vr_eigen");
+
+    cxx_build::bridge("src/openmvg/openmvg.rs")
+        .file("src/openmvg/openmvg.cpp")
+        .include(&eigen_include_dir)
+        .flag_if_supported("-std=c++14")
+        .compile("posenet_vr_openmvg");
 
     // NOTE: `cargo test` fails if this comes before cxx_build::bridge.
     // The error is undefined reference to `openMVG::TriangulateNView(...)'
