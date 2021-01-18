@@ -1,9 +1,9 @@
+use futures::StreamExt;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 
 use proto::hub_service_server::{HubService, HubServiceServer};
-use proto::{CameraInfo, Empty, HelloResponse, Pose3D};
+use proto::{CameraInfo, Empty, HelloResponse, Pose2DMessage};
 
-use futures::StreamExt;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::iter;
@@ -33,9 +33,7 @@ impl HubService for HubServer {
 
         // TODO: Store name and camera info
         let name = generate_name();
-        let intr = message.intrinsics;
         println!("name = {}", name);
-        println!("intr = {:?}", intr);
 
         let reply = HelloResponse { name: name.into() };
 
@@ -44,18 +42,19 @@ impl HubService for HubServer {
 
     async fn stream_poses(
         &self,
-        request: Request<Streaming<Pose3D>>,
+        request: Request<Streaming<Pose2DMessage>>,
     ) -> Result<Response<Empty>, Status> {
-        println!("StreamPoses");
+        println!("Client connected to stream poses.");
 
         let mut stream = request.into_inner();
 
-        while let Some(pose3d) = stream.next().await {
-            let pose3d = pose3d?;
+        while let Some(message) = stream.next().await {
+            let message = message?;
 
-            println!("Got pose: {:?}", pose3d);
+            println!("Got pose from {}: {:#?}", message.camera_name, message.pose);
         }
 
+        println!("Client has disconnected.");
         Ok(Response::new(Empty::default()))
     }
 }
