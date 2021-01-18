@@ -1,13 +1,15 @@
 use async_std::channel;
 use futures::StreamExt;
+use generic_array::arr::Inc;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::error::Error;
 use std::iter;
+use std::time::Instant;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 
 use super::proto::hub_service_server::{HubService, HubServiceServer};
-use super::proto::{CameraInfo, Empty, HelloResponse, Pose2DMessage};
+use super::proto::{CameraInfo, Empty, HelloResponse, Pose2D, Pose2DMessage};
 
 fn generate_name() -> String {
     // From https://docs.rs/rand/0.8.2/rand/distributions/struct.Alphanumeric.html
@@ -21,13 +23,20 @@ fn generate_name() -> String {
 
 pub struct HubServer {
     cameras_tx: channel::Sender<NamedCameraInfo>,
-    poses_tx: channel::Sender<Pose2DMessage>,
+    poses_tx: channel::Sender<LabeledPose2D>,
 }
 
 #[derive(Debug)]
 pub struct NamedCameraInfo {
     name: String,
     info: CameraInfo,
+}
+
+#[derive(Debug)]
+pub struct LabeledPose2D {
+    name: String,
+    pose: Pose2D,
+    time: Instant,
 }
 
 #[tonic::async_trait]
@@ -56,10 +65,22 @@ impl HubService for HubServer {
 
         while let Some(message) = stream.next().await {
             let message = message?;
-            self.poses_tx
-                .send(message)
-                .await
-                .expect("Pose channel was closed.");
+            if let Some(pose) = message.pose {
+                let labeled = LabeledPose2D {
+                    name: message.camera_name.clone(),
+                    time: Instant::now(),
+                    pose,
+                };
+                self.poses_tx
+                    .send(labeled)
+                    .await
+                    .expect("Pose channel was closed.");
+            } else {
+                eprintln!(
+                    "WARNING: Received message with no pose from {}",
+                    message.camera_name
+                )
+            }
         }
 
         Ok(Response::new(Empty::default()))
@@ -68,7 +89,7 @@ impl HubService for HubServer {
 
 pub async fn main(
     cameras_tx: channel::Sender<NamedCameraInfo>,
-    poses_tx: channel::Sender<Pose2DMessage>,
+    poses_tx: channel::Sender<LabeledPose2D>,
 ) -> Result<(), Box<dyn Error>> {
     let addr = "[::1]:50051".parse()?;
     let hub_server = HubServer {
