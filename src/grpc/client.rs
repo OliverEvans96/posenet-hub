@@ -7,15 +7,11 @@ use tokio::{
 };
 use tonic::{transport::Channel, Request};
 
-use proto::hub_service_client::HubServiceClient;
-use proto::{CameraExtrinsics, CameraInfo};
-use proto::{EulerAngles, Point2D, Point3D, Pose2D, Pose2DMessage};
+use super::proto::hub_service_client::HubServiceClient;
+use super::proto::{CameraExtrinsics, CameraInfo};
+use super::proto::{EulerAngles, Point2D, Point3D, Pose2D, Pose2DMessage};
 
-pub mod proto {
-    tonic::include_proto!("posenet_vr");
-}
-
-async fn hello(client: &mut HubServiceClient<Channel>) -> Result<String, Box<dyn Error>> {
+pub async fn hello(client: &mut HubServiceClient<Channel>) -> Result<String, Box<dyn Error>> {
     let camera_info = CameraInfo {
         intrinsics: None,
         extrinsics: Some(CameraExtrinsics {
@@ -43,7 +39,7 @@ async fn hello(client: &mut HubServiceClient<Channel>) -> Result<String, Box<dyn
     Ok(message.name)
 }
 
-fn random_pose() -> Pose2D {
+pub fn random_pose() -> Pose2D {
     let mut rng = thread_rng();
     Pose2D {
         nose: Some(Point2D {
@@ -117,7 +113,7 @@ fn random_pose() -> Pose2D {
     }
 }
 
-async fn stream_inner(
+pub async fn stream_inner(
     name: String,
     tx: async_std::channel::Sender<Pose2DMessage>,
 ) -> Result<(), Box<dyn Error>> {
@@ -139,7 +135,7 @@ async fn stream_inner(
     Ok(())
 }
 
-async fn stream_poses(
+pub async fn stream_poses(
     client: &mut HubServiceClient<Channel>,
     name: String,
 ) -> Result<(), Box<dyn Error>> {
@@ -152,20 +148,6 @@ async fn stream_poses(
     let (stream_result, response_result) = join!(stream_future, response_future);
     stream_result?;
     println!("Got response: {:#?}", response_result?);
-
-    Ok(())
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "http://[::1]:50051";
-    println!("Connecting");
-    let mut client = HubServiceClient::connect(addr).await?;
-    println!("Sending hello");
-    let name = hello(&mut client).await?;
-    println!("Streaming poses");
-    stream_poses(&mut client, name).await?;
-    println!("Done");
 
     Ok(())
 }

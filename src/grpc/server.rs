@@ -1,16 +1,13 @@
+use async_std::channel;
 use futures::StreamExt;
-use tonic::{transport::Server, Request, Response, Status, Streaming};
-
-use proto::hub_service_server::{HubService, HubServiceServer};
-use proto::{CameraInfo, Empty, HelloResponse, Pose2DMessage};
-
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use std::error::Error;
 use std::iter;
+use tonic::{transport::Server, Request, Response, Status, Streaming};
 
-pub mod proto {
-    tonic::include_proto!("posenet_vr");
-}
+use super::proto::hub_service_server::{HubService, HubServiceServer};
+use super::proto::{CameraInfo, Empty, HelloResponse, Pose2DMessage};
 
 fn generate_name() -> String {
     // From https://docs.rs/rand/0.8.2/rand/distributions/struct.Alphanumeric.html
@@ -22,49 +19,64 @@ fn generate_name() -> String {
         .collect()
 }
 
-#[derive(Debug, Default)]
-pub struct HubServer {}
+pub struct HubServer {
+    cameras_tx: channel::Sender<NamedCameraInfo>,
+    poses_tx: channel::Sender<Pose2DMessage>,
+}
+
+#[derive(Debug)]
+pub struct NamedCameraInfo {
+    name: String,
+    info: CameraInfo,
+}
 
 #[tonic::async_trait]
 impl HubService for HubServer {
     async fn hello(&self, request: Request<CameraInfo>) -> Result<Response<HelloResponse>, Status> {
-        let message = request.into_inner();
-        println!("Got a request: {:#?}", message);
-
-        // TODO: Store name and camera info
+        let info = request.into_inner();
         let name = generate_name();
-        println!("name = {}", name);
+        let camera = NamedCameraInfo {
+            name: name.clone(),
+            info,
+        };
 
-        let reply = HelloResponse { name: name.into() };
+        self.cameras_tx
+            .send(camera)
+            .await
+            .expect("Pose channel was closed.");
 
-        Ok(Response::new(reply))
+        Ok(Response::new(HelloResponse { name }))
     }
 
     async fn stream_poses(
         &self,
         request: Request<Streaming<Pose2DMessage>>,
     ) -> Result<Response<Empty>, Status> {
-        println!("Client connected to stream poses.");
-
         let mut stream = request.into_inner();
 
         while let Some(message) = stream.next().await {
             let message = message?;
-
-            println!("Got pose from {}: {:#?}", message.camera_name, message.pose);
+            self.poses_tx
+                .send(message)
+                .await
+                .expect("Pose channel was closed.");
         }
 
-        println!("Client has disconnected.");
         Ok(Response::new(Empty::default()))
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn main(
+    cameras_tx: channel::Sender<NamedCameraInfo>,
+    poses_tx: channel::Sender<Pose2DMessage>,
+) -> Result<(), Box<dyn Error>> {
     let addr = "[::1]:50051".parse()?;
-    let hub_server = HubServer::default();
+    let hub_server = HubServer {
+        cameras_tx,
+        poses_tx,
+    };
 
-    println!("Greeter service listening on {}", addr);
+    println!("PoseNet Hub gRPC service listening on {}", addr);
 
     Server::builder()
         .add_service(HubServiceServer::new(hub_server))
