@@ -5,12 +5,12 @@ use std::ops::Mul;
 use cxx::{CxxVector, UniquePtr, UniquePtrTarget};
 use generic_array::ArrayLength;
 use nalgebra::{self, Matrix3x4, MatrixMN};
-use nalgebra::{DimName, U3, U4};
-use nalgebra::{MatrixSlice3x4, MatrixSliceMN};
+use nalgebra::{DimName, Dynamic, U1, U2, U3, U4};
+use nalgebra::{MatrixSlice3x4, MatrixSliceMN, VectorSlice4};
 use nalgebra::{Point2, Point3, Rotation3, Vector3};
 
-type Matrix3xN<T> = MatrixMN<T, nalgebra::U3, nalgebra::Dynamic>;
-type Matrix2xN<T> = MatrixMN<T, nalgebra::U2, nalgebra::Dynamic>;
+type Matrix3xN<T> = MatrixMN<T, U3, Dynamic>;
+type Matrix2xN<T> = MatrixMN<T, U2, Dynamic>;
 
 #[cxx::bridge]
 mod ffi {
@@ -50,10 +50,11 @@ mod ffi {
         fn mat2x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat2X>;
         fn mat3x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat3X>;
         fn mat34_from_data(slice: &[f64]) -> UniquePtr<Mat34>;
-        fn mat34_to_slice(slice: &UniquePtr<Mat34>) -> &[f64];
+        fn mat34_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Mat34>>;
 
         // To Nalgebra
-        fn mat34_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Mat34>>;
+        fn mat34_to_slice(slice: &UniquePtr<Mat34>) -> &[f64];
+        fn vec4_to_slice(slice: &UniquePtr<Vec4>) -> &[f64];
 
         /// x's are landmark bearing vectors in each camera
         /// Ps are projective cameras
@@ -121,6 +122,13 @@ impl ToNalgebra<U3, U4> for UniquePtr<ffi::Mat34> {
     fn to_nalgebra<'a>(&'a self) -> MatrixSlice3x4<'a, f64> {
         let slice = ffi::mat34_to_slice(&self);
         MatrixSlice3x4::from_slice(slice)
+    }
+}
+
+impl ToNalgebra<U4, U1> for UniquePtr<ffi::Vec4> {
+    fn to_nalgebra<'a>(&'a self) -> VectorSlice4<'a, f64> {
+        let slice = ffi::vec4_to_slice(&self);
+        VectorSlice4::from_slice(slice)
     }
 }
 
@@ -250,7 +258,7 @@ pub fn get_projection(x3d: Point3<f64>, p: Matrix3x4<f64>) -> Point2<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Point2, Point3, Vector2};
+    use nalgebra::{Point2, Point3, Vector2, Vector4};
 
     #[test]
     fn it_works() {
@@ -324,7 +332,7 @@ mod tests {
     #[test]
     fn test_triangulate() {
         // let d = ffi::create_nview_dataset(3, 4);
-        let nviews = 8;
+        let nviews = 2;
         let npoints = 3;
 
         // Create 3D point and cameras
@@ -336,11 +344,29 @@ mod tests {
             // Project onto each camera
             let x2d_vec: Vec<_> = p_vec.iter().map(|&p| get_projection(x3d, p)).collect();
             // Reconstruct
-            let x3d_recon = triangulate(x2d_vec.as_slice(), &mut p_vec);
+            let x3d_recon_h_eig = triangulate(x2d_vec.as_slice(), &mut p_vec);
+            println!("About to convert");
+            // TODO: Avoid copying? Does this copy?
+            let x3d_recon_h: Vector4<f64> = x3d_recon_h_eig.to_nalgebra().into();
+            let x3d_recon = Point3::<f64>::from_homogeneous(x3d_recon_h)
+                .expect("Reconstructed 3D point was not homogeneous");
             // Check
             println!("i = {}", i);
             println!("x3d = {}", x3d);
-            println!("x3d_recon = {:?}", x3d_recon);
+            println!("x3d_recon = {}", x3d_recon);
+            println!();
+
+            for j in 0..nviews {
+                let p = p_vec[j];
+                let x2d = x2d_vec[j];
+                let x2d_reproj_h = p * x3d_recon_h;
+                let x2d_reproj = Point2::<f64>::from_homogeneous(x2d_reproj_h)
+                    .expect("Reprojected 2D point was not homogeneous");
+                println!("j = {}", j);
+                println!("x2d = {}", x2d);
+                println!("x2d_reproj = {}", x2d_reproj);
+                println!();
+            }
         }
     }
 }
