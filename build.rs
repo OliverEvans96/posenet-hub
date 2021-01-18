@@ -5,8 +5,6 @@ fn main() {
     dotenv().ok();
     let eigen_include_dir = env::var("EIGEN_INCLUDE_DIR").expect("EIGEN_INCLUDE_DIR");
     // println!("cargo:rustc-link-search=/home/oliver/code/rust/eigen-ndarray/cpp");
-    println!("cargo:rustc-link-lib=openMVG_multiview");
-    // println!("cargo:rustc-link-lib=openMVG_numeric");
     // println!("cargo:rustc-link-lib=dylib=stdc++");
 
     println!("cargo:rerun-if-changed=include/openmvg.hpp");
@@ -19,4 +17,9 @@ fn main() {
         .include(eigen_include_dir)
         .flag_if_supported("-std=c++14")
         .compile("posenet-vr-hub");
+
+    // NOTE: `cargo test` fails if this comes before cxx_build::bridge.
+    // The error is undefined reference to `openMVG::TriangulateNView(...)'
+    // Although strangely, running the same function from a binary works.
+    println!("cargo:rustc-link-lib=openMVG_multiview");
 }

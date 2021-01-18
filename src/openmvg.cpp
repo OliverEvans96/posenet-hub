@@ -12,6 +12,7 @@ unique_ptr<string> format_mat(const T &A) {
 unique_ptr<string> format_mat2x(const Mat2X &A) { return format_mat(A); }
 unique_ptr<string> format_mat3x(const Mat3X &A) { return format_mat(A); }
 unique_ptr<string> format_mat34(const Mat34 &A) { return format_mat(A); }
+unique_ptr<string> format_vec3(const Vec3 &A) { return format_mat(A); }
 unique_ptr<string> format_vec4(const Vec4 &A) { return format_mat(A); }
 
 unique_ptr<Mat2X> mat2x_from_data(rust::Slice<double> slice, size_t cols) {
@@ -81,11 +82,14 @@ void triangulate_nview() {
 }
 */
 
-void triangulate_nview(
-    const Mat3X &x,  // x's are landmark bearing vectors in each camera
-    const std::vector<Mat34> &Ps,  // Ps are projective cameras
-    unique_ptr<Vec4> X) {
-    TriangulateNView(x, Ps, X.get());
+unique_ptr<Vec4> triangulate_nview(
+    // x's are landmark bearing vectors in each camera
+    const unique_ptr<Mat3X> x,
+    // Ps are projective cameras
+    const unique_ptr<std::vector<Mat34>> Ps) {
+    auto X = make_unique<Vec4>();
+    TriangulateNView(*x, *Ps, X.get());
+    return X;
 }
 
 // Test

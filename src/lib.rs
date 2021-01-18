@@ -2,7 +2,7 @@ use std::fmt;
 
 use cxx::{CxxVector, UniquePtr, UniquePtrTarget};
 use nalgebra::{self, Matrix3x4, MatrixMN};
-// use nalgebra::{Point2, Point3, Vector3};
+use nalgebra::{Point2, Point3, Vector2, Vector3};
 
 #[cxx::bridge]
 mod ffi {
@@ -24,6 +24,7 @@ mod ffi {
         type Mat2X;
         type Mat3X;
         type Mat34;
+        type Vec3;
         type Vec4;
     }
 
@@ -33,6 +34,7 @@ mod ffi {
         fn format_mat2x(a: &Mat2X) -> UniquePtr<CxxString>;
         fn format_mat3x(a: &Mat3X) -> UniquePtr<CxxString>;
         fn format_mat34(a: &Mat34) -> UniquePtr<CxxString>;
+        fn format_vec3(a: &Vec3) -> UniquePtr<CxxString>;
         fn format_vec4(a: &Vec4) -> UniquePtr<CxxString>;
         fn mat2x_from_data(slice: &mut [f64], cols: usize) -> UniquePtr<Mat2X>;
         fn mat3x_from_data(slice: &mut [f64], cols: usize) -> UniquePtr<Mat3X>;
@@ -40,13 +42,16 @@ mod ffi {
 
         fn mat34_vec_from_data(slice: &[&mut [f64]]) -> UniquePtr<CxxVector<Mat34>>;
 
-    // fn print_mat34_vec(v: UniquePtr<CxxVector<Mat34>>);
+        // fn print_mat34_vec(v: UniquePtr<CxxVector<Mat34>>);
 
-    // fn create_nview_dataset(nview: i32, npoints: i32) -> NViewPartialDataset;
+        // fn create_nview_dataset(nview: i32, npoints: i32) -> NViewPartialDataset;
 
-    // x's are landmark bearing vectors in each camera
-    // Ps are projective cameras
-    // fn triangulate_nview(x: &Mat3X, Ps: &CxxVector<Mat34>, X: UniquePtr<Vec4>);
+        /// x's are landmark bearing vectors in each camera
+        /// Ps are projective cameras
+        fn triangulate_nview(
+            x: UniquePtr<Mat3X>,
+            Ps: UniquePtr<CxxVector<Mat34>>,
+        ) -> UniquePtr<Vec4>;
     }
 }
 
@@ -152,8 +157,10 @@ impl fmt::Debug for ffi::Vec4 {
     }
 }
 
-/*
-fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) -> Point3<f64> {
+fn triangulate(
+    points2d: &[Point2<f64>],
+    camera_poses: &mut [Matrix3x4<f64>],
+) -> UniquePtr<ffi::Vec4> {
     assert_eq!(points2d.len(), camera_poses.len());
     let x2d_h_mat = Matrix3xN::<f64>::from_columns(
         points2d
@@ -163,8 +170,14 @@ fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) -> Poi
             .as_slice(),
     )
     .to_eigen();
+
+    let camera_mat = camera_poses.to_eigen();
+
+    let x3d = ffi::triangulate_nview(x2d_h_mat, camera_mat);
+
+    // TODO: Convert back to nalgebra point
+    return x3d;
 }
-*/
 
 /*
 fn triangulate_many<T: nalgebra::Scalar>(
@@ -179,10 +192,26 @@ fn triangulate_many<T: nalgebra::Scalar>(
 }
 */
 
+pub fn _test_rand_triangulate() {
+    let nviews = 5;
+    let mut points2d = Vec::<Point2<f64>>::with_capacity(nviews);
+    let mut camera_poses = Vec::<Matrix3x4<f64>>::with_capacity(nviews);
+
+    for _ in 0..nviews {
+        let point2d = Point2::from(Vector2::new_random());
+        let camera_pose = Matrix3x4::new_random();
+        points2d.push(point2d);
+        camera_poses.push(camera_pose);
+    }
+
+    let x3d: UniquePtr<ffi::Vec4> = triangulate(points2d.as_slice(), camera_poses.as_mut_slice());
+    println!("RAND x3d = {:?}", x3d);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    // use nalgebra::{Point2, Point3, Vector3};
+    use nalgebra::{Point2, Point3, Vector2, Vector3};
 
     #[test]
     fn it_works() {
@@ -220,7 +249,13 @@ mod tests {
     }
     */
 
+    #[test]
+    fn test_rand_triangulate() {
+        _test_rand_triangulate()
+    }
+
     /*
+    // TODO: Run this real test
     #[test]
     fn test_triangulate() {
         // let d = ffi::create_nview_dataset(3, 4);
@@ -235,11 +270,7 @@ mod tests {
         let x3d_mat = Matrix3xN::<f64>::from_columns(x3d_vec.as_slice());
 
         // Create homogeneous projections for each camera
-        let x2d_h_vec: Vec<Vector3<f64>> = x3d_vec
-            .iter()
-            .zip(p_vec.iter())
-            .map(|(x3d, p)| p * Point3::<f64>::from(*x3d).to_homogeneous())
-            .collect();
+        let x2d_h_vec: Vec<Vector3<f64>> = x3d_vec.iter().zip(p_vec.iter()).collect();
 
         let x2d_vec: Vec<Point2<f64>> = x2d_h_vec
             .iter()
@@ -256,7 +287,14 @@ mod tests {
             println!("x2d[{}] = {}", i, x2d_vec[i]);
         }
 
-        let x3d_t = triangulate(x2d_vec, p_vec);
+        for i in 0..npoints {
+            let x2d = x2d_vec[i];
+
+            // .map(|(x3d, p)| p * Point3::<f64>::from(*x3d).to_homogeneous())
+
+            // let x3d_t = triangulate(x2d, p_vec);
+            println!("x3d = {:?}", x3d_t);
+        }
     }
     */
 }
