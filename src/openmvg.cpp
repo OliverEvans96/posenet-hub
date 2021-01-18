@@ -36,7 +36,7 @@ unique_ptr<Mat34> mat34_from_data(rust::Slice<const double> slice) {
     return make_unique<Mat34>(mf);
 }
 
-rust::Slice<const double> mat34_to_slice(unique_ptr<Mat34> mat_ptr) {
+rust::Slice<const double> mat34_to_slice(const unique_ptr<Mat34> &mat_ptr) {
     // See Eigen Map docs
     // https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
     const size_t rows = 3;

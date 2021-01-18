@@ -47,7 +47,7 @@ mod ffi {
         fn mat2x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat2X>;
         fn mat3x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat3X>;
         fn mat34_from_data(slice: &[f64]) -> UniquePtr<Mat34>;
-        fn mat34_to_slice<'a>(slice: &'a UniquePtr<Mat34>) -> &'a [f64];
+        fn mat34_to_slice(slice: &UniquePtr<Mat34>) -> &[f64];
 
         fn mat34_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Mat34>>;
 
@@ -280,11 +280,24 @@ mod tests {
     #[test]
     fn two_way_matrix_conversion() {
         let a = Matrix3x4::<f64>::new_random();
-        let b = a.to_eigen();
-        let c = b.to_nalgebra();
-        println!("a = {}", a);
-        println!("b = {:?}", b);
-        println!("c = {}", c);
+        println!("a1 = {}", a);
+        println!();
+        {
+            let b = a.to_eigen();
+            println!("a2 = {}", a);
+            println!("b2 = {:?}", b);
+            println!();
+            {
+                let c = b.to_nalgebra();
+                println!("a3 = {}", a);
+                println!("b3 = {:?}", b);
+                println!("c3 = {}", c);
+                println!();
+            }
+            println!("a4 = {}", a);
+            println!("b4 = {:?}", b);
+        }
+        println!("a5 = {}", a);
     }
 
     #[test]

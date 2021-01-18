@@ -26,7 +26,7 @@ unique_ptr<Mat2X> mat2x_from_data(rust::Slice<const double> slice, size_t cols);
 unique_ptr<Mat3X> mat3x_from_data(rust::Slice<const double> slice, size_t cols);
 unique_ptr<Mat34> mat34_from_data(rust::Slice<const double> slice);
 
-rust::Slice<const double> mat34_to_slice(unique_ptr<Mat34> mat_ptr);
+rust::Slice<const double> mat34_to_slice(const unique_ptr<Mat34> &mat_ptr);
 
 unique_ptr<vector<Mat34>> mat34_vec_from_data(
     rust::Slice<const rust::Slice<const double>> slices);
