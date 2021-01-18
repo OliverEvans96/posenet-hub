@@ -209,6 +209,7 @@ dependencies = [
  "cxx",
  "cxx-build",
  "dotenv",
+ "generic-array",
  "nalgebra",
 ]
 

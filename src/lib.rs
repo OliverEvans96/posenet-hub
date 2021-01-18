@@ -1,9 +1,16 @@
 use core::f64;
 use std::fmt;
+use std::ops::Mul;
 
 use cxx::{CxxVector, UniquePtr, UniquePtrTarget};
+use generic_array::ArrayLength;
 use nalgebra::{self, Matrix3x4, MatrixMN};
+use nalgebra::{DimName, U3, U4};
+use nalgebra::{MatrixSlice3x4, MatrixSliceMN};
 use nalgebra::{Point2, Point3, Rotation3, Vector3};
+
+type Matrix3xN<T> = MatrixMN<T, nalgebra::U3, nalgebra::Dynamic>;
+type Matrix2xN<T> = MatrixMN<T, nalgebra::U2, nalgebra::Dynamic>;
 
 #[cxx::bridge]
 mod ffi {
@@ -40,6 +47,7 @@ mod ffi {
         fn mat2x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat2X>;
         fn mat3x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat3X>;
         fn mat34_from_data(slice: &[f64]) -> UniquePtr<Mat34>;
+        fn mat34_to_slice<'a>(slice: &'a UniquePtr<Mat34>) -> &'a [f64];
 
         fn mat34_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Mat34>>;
 
@@ -57,9 +65,6 @@ mod ffi {
 }
 
 // impl ToEigen
-
-type Matrix3xN<T> = MatrixMN<T, nalgebra::U3, nalgebra::Dynamic>;
-type Matrix2xN<T> = MatrixMN<T, nalgebra::U2, nalgebra::Dynamic>;
 
 trait ToEigen {
     type T: UniquePtrTarget;
@@ -100,10 +105,29 @@ impl ToEigen for &[Matrix3x4<f64>] {
     }
 }
 
+// impl ToNalgebra
+
+trait ToNalgebra<M, N>
+where
+    M: DimName,
+    N: DimName,
+    M::Value: Mul<N::Value>,
+    <M::Value as Mul<N::Value>>::Output: ArrayLength<f64>,
+{
+    fn to_nalgebra<'a>(&'a self) -> MatrixSliceMN<'a, f64, M, N>;
+}
+
+impl ToNalgebra<U3, U4> for UniquePtr<ffi::Mat34> {
+    fn to_nalgebra<'a>(&'a self) -> MatrixSlice3x4<'a, f64> {
+        let slice = ffi::mat34_to_slice(&self);
+        MatrixSlice3x4::from_slice(slice)
+    }
+}
+
 // impl Debug
 
 impl fmt::Debug for ffi::Mat34 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_mat34(self);
         let s = cxx_str
             .as_ref()
@@ -116,7 +140,7 @@ impl fmt::Debug for ffi::Mat34 {
 }
 
 impl fmt::Debug for ffi::Mat2X {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_mat2x(self);
         let s = cxx_str
             .as_ref()
@@ -129,7 +153,7 @@ impl fmt::Debug for ffi::Mat2X {
 }
 
 impl fmt::Debug for ffi::Mat3X {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_mat3x(self);
         let s = cxx_str
             .as_ref()
@@ -142,7 +166,7 @@ impl fmt::Debug for ffi::Mat3X {
 }
 
 impl fmt::Debug for ffi::Vec3 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_vec3(self);
         let s = cxx_str
             .as_ref()
@@ -155,7 +179,7 @@ impl fmt::Debug for ffi::Vec3 {
 }
 
 impl fmt::Debug for ffi::Vec4 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_vec4(self);
         let s = cxx_str
             .as_ref()
@@ -248,9 +272,19 @@ mod tests {
 
     #[test]
     fn nalgebra_to_eigen() {
-        let m = Matrix3x4::<f64>::new(1.0, 3.5, 1.2, 6.2, 1.2, 3.5, 3.6, 7.8, 8.3, 2.1, 1.7, 9.8);
+        let m = Matrix3x4::<f64>::new_random();
         let p = m.to_eigen();
         println!("A = \n{:?}", p);
+    }
+
+    #[test]
+    fn two_way_matrix_conversion() {
+        let a = Matrix3x4::<f64>::new_random();
+        let b = a.to_eigen();
+        let c = b.to_nalgebra();
+        println!("a = {}", a);
+        println!("b = {:?}", b);
+        println!("c = {}", c);
     }
 
     #[test]

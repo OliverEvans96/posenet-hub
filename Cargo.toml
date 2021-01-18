@@ -10,6 +10,7 @@ edition = "2018"
 # cxx = "1.0"
 cxx = {path = "/home/oliver/code/rust/cxx"}
 nalgebra = "0.24"
+generic-array = "0.14"
 
 [build-dependencies]
 cxx-build = "1.0"
