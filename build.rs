@@ -1,11 +1,23 @@
 use dotenv::dotenv;
 use std::env;
 
-fn main() {
+fn build_grpc() -> Result<(), Box<dyn std::error::Error>> {
+    tonic_build::configure()
+        .build_client(true)
+        .compile(&["proto/hub.proto"], &["proto"])?;
+
+    Ok(())
+}
+
+fn build_cxx() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let eigen_include_dir = env::var("EIGEN_INCLUDE_DIR").expect("EIGEN_INCLUDE_DIR");
     // println!("cargo:rustc-link-search=/home/oliver/code/rust/eigen-ndarray/cpp");
     // println!("cargo:rustc-link-lib=dylib=stdc++");
+
+    println!("cargo:rerun-if-changed=proto/common.proto");
+    println!("cargo:rerun-if-changed=proto/client.proto");
+    println!("cargo:rerun-if-changed=proto/server.proto");
 
     println!("cargo:rerun-if-changed=include/eigen.hpp");
     println!("cargo:rerun-if-changed=src/openmvg/eigen.cpp");
@@ -31,4 +43,13 @@ fn main() {
     // The error is undefined reference to `openMVG::TriangulateNView(...)'
     // Although strangely, running the same function from a binary works.
     println!("cargo:rustc-link-lib=openMVG_multiview");
+
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    build_grpc()?;
+    build_cxx()?;
+
+    Ok(())
 }
