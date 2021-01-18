@@ -335,10 +335,12 @@ mod tests {
         let nviews = 2;
         let npoints = 3;
 
+        let tol = 1e-9;
+
         // Create 3D point and cameras
         let mut p_vec: Vec<Matrix3x4<f64>> = (0..nviews).map(|_| Matrix3x4::new_random()).collect();
 
-        for i in 0..npoints {
+        for _ in 0..npoints {
             // Create 3D point
             let x3d: Point3<_> = Vector3::<f64>::new_random().into();
             // Project onto each camera
@@ -350,22 +352,18 @@ mod tests {
             let x3d_recon_h: Vector4<f64> = x3d_recon_h_eig.to_nalgebra().into();
             let x3d_recon = Point3::<f64>::from_homogeneous(x3d_recon_h)
                 .expect("Reconstructed 3D point was not homogeneous");
-            // Check
-            println!("i = {}", i);
-            println!("x3d = {}", x3d);
-            println!("x3d_recon = {}", x3d_recon);
-            println!();
+            // Compare reconstruction with original
+            assert!((x3d - x3d_recon).norm() < tol);
 
             for j in 0..nviews {
+                // Reproject reconstructed point to each camera
                 let p = p_vec[j];
                 let x2d = x2d_vec[j];
                 let x2d_reproj_h = p * x3d_recon_h;
                 let x2d_reproj = Point2::<f64>::from_homogeneous(x2d_reproj_h)
                     .expect("Reprojected 2D point was not homogeneous");
-                println!("j = {}", j);
-                println!("x2d = {}", x2d);
-                println!("x2d_reproj = {}", x2d_reproj);
-                println!();
+                // Compare reprojection with original projection
+                assert!((x2d - x2d_reproj).norm() < tol);
             }
         }
     }
