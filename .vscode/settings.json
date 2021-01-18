@@ -2,4 +2,16 @@
     "rust-analyzer.diagnostics.disabled": [
         "missing-unsafe"
     ],
+    "files.associations": {
+        "*.ipp": "cpp",
+        "array": "cpp",
+        "hash_map": "cpp",
+        "bitset": "cpp",
+        "string_view": "cpp",
+        "initializer_list": "cpp",
+        "ranges": "cpp",
+        "regex": "cpp",
+        "utility": "cpp",
+        "valarray": "cpp"
+    },
 }
