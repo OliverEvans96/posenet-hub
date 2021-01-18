@@ -105,20 +105,3 @@ unique_ptr<Vec4> triangulate_nview(
     TriangulateNView(*x, *Ps, X.get());
     return X;
 }
-
-// Test
-
-NViewPartialDataset create_nview_dataset(int nviews, int npoints) {
-    const NViewDataSet d = NRealisticCamerasRing(nviews, npoints);
-    auto Ps = make_unique<vector<Mat34>>();
-    for (size_t i = 0; i < d._n; i++) {
-        Ps->push_back(d.P(i));
-    }
-    auto x3d = make_unique<Mat3X>(d._X);
-    auto x2d_vec = make_unique<vector<Mat2X>>(d._x);
-    NViewPartialDataset n{.x3d = move(x3d),
-                          .x2d_vec = move(x2d_vec),
-                          .n = d._n,
-                          .p_vec = move(Ps)};
-    return n;
-}

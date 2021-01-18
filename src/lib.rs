@@ -39,21 +39,21 @@ mod ffi {
     unsafe extern "C++" {
         include!("posenet-vr-hub/include/openmvg.hpp");
 
+        // Format
         fn format_mat2x(a: &Mat2X) -> UniquePtr<CxxString>;
         fn format_mat3x(a: &Mat3X) -> UniquePtr<CxxString>;
         fn format_mat34(a: &Mat34) -> UniquePtr<CxxString>;
         fn format_vec3(a: &Vec3) -> UniquePtr<CxxString>;
         fn format_vec4(a: &Vec4) -> UniquePtr<CxxString>;
+
+        // To Eigen
         fn mat2x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat2X>;
         fn mat3x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat3X>;
         fn mat34_from_data(slice: &[f64]) -> UniquePtr<Mat34>;
         fn mat34_to_slice(slice: &UniquePtr<Mat34>) -> &[f64];
 
+        // To Nalgebra
         fn mat34_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Mat34>>;
-
-        // fn print_mat34_vec(v: UniquePtr<CxxVector<Mat34>>);
-
-        // fn create_nview_dataset(nview: i32, npoints: i32) -> NViewPartialDataset;
 
         /// x's are landmark bearing vectors in each camera
         /// Ps are projective cameras
@@ -247,19 +247,6 @@ pub fn get_projection(x3d: Point3<f64>, p: Matrix3x4<f64>) -> Point2<f64> {
     x2d.expect("Point was not homogeneous, projection failed.")
 }
 
-/*
-fn triangulate_many<T: nalgebra::Scalar>(
-    points2d_slice: &[&[Point2<T>]],
-    camera_poses: &[Matrix3x4<T>],
-) -> Vec<Point3<T>> {
-    let points3d: Vec<Point3<T>>;
-    points2d
-        .iter()
-        .map(|x2d| triangulate_one(x2d, camera_poses))
-        .collect()
-}
-*/
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,24 +267,11 @@ mod tests {
     #[test]
     fn two_way_matrix_conversion() {
         let a = Matrix3x4::<f64>::new_random();
-        println!("a1 = {}", a);
-        println!();
-        {
-            let b = a.to_eigen();
-            println!("a2 = {}", a);
-            println!("b2 = {:?}", b);
-            println!();
-            {
-                let c = b.to_nalgebra();
-                println!("a3 = {}", a);
-                println!("b3 = {:?}", b);
-                println!("c3 = {}", c);
-                println!();
-            }
-            println!("a4 = {}", a);
-            println!("b4 = {:?}", b);
-        }
-        println!("a5 = {}", a);
+        let b = a.to_eigen();
+        let c = b.to_nalgebra();
+        println!("a = {}", a);
+        println!("b = {:?}", b);
+        println!("c = {}", c);
     }
 
     #[test]
@@ -316,14 +290,6 @@ mod tests {
         }
     }
 
-    /*
-    #[test]
-    fn test_create_nview_dataset() {
-        let d = ffi::create_nview_dataset(3, 4);
-        println!("d = {:?}", d);
-    }
-    */
-
     #[test]
     fn test_rand_triangulate() {
         let nviews = 5;
@@ -341,16 +307,6 @@ mod tests {
             triangulate(points2d.as_slice(), camera_poses.as_mut_slice());
         println!("RAND x3d = {:?}", x3d);
     }
-
-    /*
-    /// Project a single 3D point onto multiple camera
-    fn get_projections(x3d: Point3<f64>, camera_poses: &[Matrix3x4<f64>]) -> Vec<Point2<f64>> {
-        let nposes = camera_poses.len();
-        let x2d_vec = Vec::<Point2<f64>>::with_capacity(nposes);
-
-        x2d_vec
-    }
-    */
 
     #[test]
     fn test_projection() {

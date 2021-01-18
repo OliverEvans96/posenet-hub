@@ -42,7 +42,3 @@ unique_ptr<Vec4> triangulate_nview(
     const unique_ptr<Mat3X> x,
     // Ps are projective cameras
     const unique_ptr<std::vector<Mat34>> Ps);
-
-// Test
-
-NViewPartialDataset create_nview_dataset(int nviews, int npoints);
