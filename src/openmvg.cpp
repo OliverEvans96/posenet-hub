@@ -14,25 +14,72 @@ unique_ptr<string> format_mat3x(const Mat3X &A) { return format_mat(A); }
 unique_ptr<string> format_mat34(const Mat34 &A) { return format_mat(A); }
 unique_ptr<string> format_vec4(const Vec4 &A) { return format_mat(A); }
 
-unique_ptr<Mat2X> mat2x_from_data(rust::Slice<double> slice, size_t rows,
-                                  size_t cols) {
+unique_ptr<Mat2X> mat2x_from_data(rust::Slice<double> slice, size_t cols) {
+    const int rows = 2;
     Map<Mat2X> mf(slice.data(), rows, cols);
     return make_unique<Mat2X>(mf);
 }
 
-unique_ptr<Mat3X> mat3x_from_data(rust::Slice<double> slice, size_t rows,
-                                  size_t cols) {
+unique_ptr<Mat3X> mat3x_from_data(rust::Slice<double> slice, size_t cols) {
+    const int rows = 3;
     Map<Mat3X> mf(slice.data(), rows, cols);
     return make_unique<Mat3X>(mf);
 }
 
-unique_ptr<Mat34> mat34_from_data(rust::Slice<double> slice, size_t rows,
-                                  size_t cols) {
+unique_ptr<Mat34> mat34_from_data(rust::Slice<double> slice) {
+    const int rows = 3;
+    const int cols = 4;
     Map<Mat34> mf(slice.data(), rows, cols);
     return make_unique<Mat34>(mf);
 }
 
+unique_ptr<vector<Mat34>> mat34_vec_from_data(
+    const rust::Slice<const rust::Slice<double>> slices) {
+    const int rows = 3;
+    const int cols = 4;
+    auto vp = make_unique<vector<Mat34>>();
+    for (rust::Slice<const rust::Slice<double>>::iterator it = slices.begin();
+         it != slices.end(); ++it) {
+        Map<Mat34> mf(it->data(), rows, cols);
+        Mat34 mat(mf);
+        vp->push_back(mat);
+    }
+    return vp;
+}
+
+void print_mat34_vec(unique_ptr<vector<Mat34>> vp) {
+    cout << "Mat34 vec has " << vp->size() << " elements" << endl;
+    int i = 0;
+    for (vector<Mat34>::iterator it = vp->begin(); it != vp->end(); ++it) {
+        cout << "i = " << i << endl;
+        cout << *it << endl << endl;
+    }
+}
+
 // Triangulation
+
+/*
+void triangulate_nview() {
+    for (int i = 0; i < npoints; ++i) {
+        // Collect the image of point i in each frame.
+        Mat3X xs(3, nviews);
+        for (int j = 0; j < nviews; ++j) {
+            xs.col(j) = d._x[j].col(i).homogeneous();
+        }
+        Vec4 X;
+        TriangulateNView(xs, Ps, &X);
+
+        // Check reprojection error. Should be nearly zero.
+        for (int j = 0; j < nviews; ++j) {
+            const Vec3 x_reprojected = Ps[j] * X;
+            const double error =
+                (x_reprojected.hnormalized() - xs.col(j).hnormalized()).norm();
+            EXPECT_NEAR(error, 0.0, 1e-9);
+        }
+    }
+}
+}
+*/
 
 void triangulate_nview(
     const Mat3X &x,  // x's are landmark bearing vectors in each camera

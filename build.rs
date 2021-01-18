@@ -5,7 +5,8 @@ fn main() {
     dotenv().ok();
     let eigen_include_dir = env::var("EIGEN_INCLUDE_DIR").expect("EIGEN_INCLUDE_DIR");
     // println!("cargo:rustc-link-search=/home/oliver/code/rust/eigen-ndarray/cpp");
-    // println!("cargo:rustc-link-lib=eigen_ndarray");
+    println!("cargo:rustc-link-lib=openMVG_multiview");
+    // println!("cargo:rustc-link-lib=openMVG_numeric");
     // println!("cargo:rustc-link-lib=dylib=stdc++");
 
     println!("cargo:rerun-if-changed=include/openmvg.hpp");
