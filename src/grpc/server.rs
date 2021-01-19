@@ -28,15 +28,15 @@ pub struct HubServer {
 
 #[derive(Debug)]
 pub struct NamedCameraInfo {
-    name: String,
-    info: CameraInfo,
+    pub name: String,
+    pub info: CameraInfo,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LabeledPose2D {
-    name: String,
-    pose: Pose2D,
-    time: Instant,
+    pub name: String,
+    pub pose: Pose2D,
+    pub time: Instant,
 }
 
 #[tonic::async_trait]

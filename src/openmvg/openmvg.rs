@@ -1,10 +1,9 @@
 use core::f64;
 
-use cxx::UniquePtr;
 use nalgebra::{self, Matrix3x4};
 use nalgebra::{Point2, Point3, Rotation3, Vector3};
 
-use super::eigen::{Matrix3xN, ToEigen};
+use super::eigen::{Matrix3xN, ToEigen, ToNalgebra};
 
 #[cxx::bridge]
 mod ffi {
@@ -27,11 +26,11 @@ mod ffi {
     }
 }
 
-pub fn triangulate(
-    points2d: &[Point2<f64>],
-    camera_poses: &[Matrix3x4<f64>],
-) -> UniquePtr<ffi::Vec4> {
+pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) -> Point3<f64> {
     assert_eq!(points2d.len(), camera_poses.len());
+    println!("Triangulating:");
+    println!("Points: {:#?}", points2d);
+    println!("Cameras: {:#?}", camera_poses);
     let x2d_h_mat = Matrix3xN::<f64>::from_columns(
         points2d
             .iter()
@@ -43,16 +42,19 @@ pub fn triangulate(
 
     let camera_mat = camera_poses.to_eigen();
 
-    let x3d = ffi::triangulate_nview(x2d_h_mat, camera_mat);
+    let x3d_h_eig = ffi::triangulate_nview(x2d_h_mat, camera_mat);
+    let x3d_h = x3d_h_eig.to_nalgebra();
+    // TODO: Avoid copying? Does this `.into()` copy?
+    let x3d =
+        Point3::from_homogeneous(x3d_h.into()).expect("Triangulated point was not homogeneous");
 
-    // TODO: Convert back to nalgebra point
     return x3d;
 }
 
 pub fn triangulate_many(
     points2d_slice: &[&[Point2<f64>]],
-    camera_poses: &mut [Matrix3x4<f64>],
-) -> Vec<UniquePtr<ffi::Vec4>> {
+    camera_poses: &[Matrix3x4<f64>],
+) -> Vec<Point3<f64>> {
     points2d_slice
         .iter()
         .map(|p2d| triangulate(p2d, camera_poses))
@@ -85,9 +87,8 @@ pub fn get_projection(x3d: Point3<f64>, p: Matrix3x4<f64>) -> Point2<f64> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::eigen::ToNalgebra;
     use super::*;
-    use nalgebra::{Point2, Point3, Vector2, Vector4};
+    use nalgebra::{Point2, Point3, Vector2};
 
     #[test]
     fn test_projection() {
@@ -115,9 +116,8 @@ mod tests {
             camera_poses.push(camera_pose);
         }
 
-        let x3d: UniquePtr<ffi::Vec4> =
-            triangulate(points2d.as_slice(), camera_poses.as_mut_slice());
-        println!("RAND x3d = {:?}", x3d);
+        let x3d: Point3<f64> = triangulate(points2d.as_slice(), camera_poses.as_mut_slice());
+        println!("RAND x3d = {}", x3d);
     }
 
     #[test]
@@ -137,12 +137,8 @@ mod tests {
             // Project onto each camera
             let x2d_vec: Vec<_> = p_vec.iter().map(|&p| get_projection(x3d, p)).collect();
             // Reconstruct
-            let x3d_recon_h_eig = triangulate(x2d_vec.as_slice(), &mut p_vec);
-            println!("About to convert");
-            // TODO: Avoid copying? Does this copy?
-            let x3d_recon_h: Vector4<f64> = x3d_recon_h_eig.to_nalgebra().into();
-            let x3d_recon = Point3::<f64>::from_homogeneous(x3d_recon_h)
-                .expect("Reconstructed 3D point was not homogeneous");
+            let x3d_recon = triangulate(x2d_vec.as_slice(), &mut p_vec);
+            let x3d_recon_h = x3d_recon.to_homogeneous();
             // Compare reconstruction with original
             assert!((x3d - x3d_recon).norm() < tol);
 
