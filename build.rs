@@ -43,6 +43,8 @@ fn build_cxx() -> Result<(), Box<dyn std::error::Error>> {
     // The error is undefined reference to `openMVG::TriangulateNView(...)'
     // Although strangely, running the same function from a binary works.
     println!("cargo:rustc-link-lib=openMVG_multiview");
+    // NOTE: Similarly, numeric must come after multiview
+    println!("cargo:rustc-link-lib=openMVG_numeric");
 
     Ok(())
 }
