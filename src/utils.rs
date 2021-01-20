@@ -11,3 +11,50 @@ pub async fn read_rx<T: Debug>(name: &str, rx: channel::Receiver<T>) -> Result<(
         println!("#{} {}: {:#?}", i, name, thing);
     }
 }
+
+/// e.g. convert
+///
+/// [[ 0,  1,  2,  3,  4],
+///  [10, 11, 12, 13, 14],
+///  [20, 21, 22, 23, 24],
+///  [30, 31, 32, 33, 34],
+///  [40, 41, 42, 43, 44]]
+///
+/// ->
+///
+/// [[ 0, 10, 20, 30, 40],
+///  [ 1, 11, 21, 31, 41],
+///  [ 2, 12, 22, 32, 42],
+///  [ 3, 13, 23, 33, 43],
+///  [ 4, 14, 24, 34, 44]]
+pub fn transpose_vecvec<U, T>(orig: &[U]) -> Vec<Vec<T>>
+where
+    // Allow orig: &[&[T]] OR Vec<Vec<T>>
+    // See https://stackoverflow.com/a/50056925/4228052
+    U: AsRef<[T]>,
+    T: Clone,
+{
+    let outer_len = orig.len();
+    let inner_len = orig[0].as_ref().len();
+
+    // Assert that all subslices have the same length.
+    for inner in orig[1..].iter() {
+        assert_eq!(inner.as_ref().len(), inner_len);
+    }
+
+    // Initialize the result
+    let mut result = Vec::<Vec<T>>::with_capacity(inner_len);
+    for _ in 0..inner_len {
+        result.push(Vec::<T>::with_capacity(outer_len));
+    }
+
+    // Fill the result
+    for inner in orig {
+        let slice = inner.as_ref();
+        for (j, el) in slice.iter().enumerate() {
+            result[j].push((*el).clone());
+        }
+    }
+
+    result
+}

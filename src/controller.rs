@@ -8,6 +8,7 @@ use tokio::{time::delay_for, try_join};
 
 use crate::grpc::proto::{CameraInfo, Pose3D};
 use crate::grpc::server::{LabeledPose2D, NamedCameraInfo};
+use crate::utils::transpose_vecvec;
 
 pub struct ControllerConfig {
     /// Poses older than this will be ignored
@@ -38,74 +39,24 @@ pub struct Controller {
 
 /// Group associated points by keypoint (projections of same 3d point)
 /// and convert from gRPC to nalgebra type
-fn collect_points_by_keypoint(poses: &[LabeledPose2D]) -> Option<Vec<Vec<Point2<f64>>>> {
-    let num_keypoints = 17;
-    let num_cameras = poses.len();
-    let mut keypoint_vec: Vec<Vec<Point2<f64>>> = (0..num_keypoints)
-        .map(|_| {
-            (0..num_cameras)
-                .map(|_| Point2::<f64>::new(0.0, 0.0))
-                .collect()
-        })
+fn collect_points_by_keypoint(poses: Vec<LabeledPose2D>) -> Option<Vec<Vec<Point2<f64>>>> {
+    // x[i][j] is the coorinates of keypoint j as seen from camera i
+    let points_grouped_by_camera: Vec<Vec<Point2<f64>>> = poses
+        .into_iter()
+        .map(|labeled| labeled.pose.into())
         .collect();
-
-    for i in 0..num_cameras {
-        // TODO: Allow missing keypoints
-        // This will fail if anything is missing
-        keypoint_vec[0][i].x = poses[i].pose.nose.as_ref()?.x;
-        keypoint_vec[0][i].y = poses[i].pose.nose.as_ref()?.y;
-        keypoint_vec[1][i].x = poses[i].pose.left_eye.as_ref()?.x;
-        keypoint_vec[1][i].y = poses[i].pose.left_eye.as_ref()?.y;
-        keypoint_vec[2][i].x = poses[i].pose.right_eye.as_ref()?.x;
-        keypoint_vec[2][i].y = poses[i].pose.right_eye.as_ref()?.y;
-        keypoint_vec[3][i].x = poses[i].pose.left_ear.as_ref()?.x;
-        keypoint_vec[3][i].y = poses[i].pose.left_ear.as_ref()?.y;
-        keypoint_vec[4][i].x = poses[i].pose.right_ear.as_ref()?.x;
-        keypoint_vec[4][i].y = poses[i].pose.right_ear.as_ref()?.y;
-        keypoint_vec[5][i].x = poses[i].pose.left_shoulder.as_ref()?.x;
-        keypoint_vec[5][i].y = poses[i].pose.left_shoulder.as_ref()?.y;
-        keypoint_vec[6][i].x = poses[i].pose.right_shoulder.as_ref()?.x;
-        keypoint_vec[6][i].y = poses[i].pose.right_shoulder.as_ref()?.y;
-        keypoint_vec[7][i].x = poses[i].pose.left_elbow.as_ref()?.x;
-        keypoint_vec[7][i].y = poses[i].pose.left_elbow.as_ref()?.y;
-        keypoint_vec[8][i].x = poses[i].pose.right_elbow.as_ref()?.x;
-        keypoint_vec[8][i].y = poses[i].pose.right_elbow.as_ref()?.y;
-        keypoint_vec[9][i].x = poses[i].pose.left_wrist.as_ref()?.x;
-        keypoint_vec[9][i].y = poses[i].pose.left_wrist.as_ref()?.y;
-        keypoint_vec[10][i].x = poses[i].pose.right_wrist.as_ref()?.x;
-        keypoint_vec[10][i].y = poses[i].pose.right_wrist.as_ref()?.y;
-        keypoint_vec[11][i].x = poses[i].pose.left_hip.as_ref()?.x;
-        keypoint_vec[11][i].y = poses[i].pose.left_hip.as_ref()?.y;
-        keypoint_vec[12][i].x = poses[i].pose.right_hip.as_ref()?.x;
-        keypoint_vec[12][i].y = poses[i].pose.right_hip.as_ref()?.y;
-        keypoint_vec[13][i].x = poses[i].pose.left_knee.as_ref()?.x;
-        keypoint_vec[13][i].y = poses[i].pose.left_knee.as_ref()?.y;
-        keypoint_vec[14][i].x = poses[i].pose.right_knee.as_ref()?.x;
-        keypoint_vec[14][i].y = poses[i].pose.right_knee.as_ref()?.y;
-        keypoint_vec[15][i].x = poses[i].pose.left_ankle.as_ref()?.x;
-        keypoint_vec[15][i].y = poses[i].pose.left_ankle.as_ref()?.y;
-        keypoint_vec[16][i].x = poses[i].pose.right_ankle.as_ref()?.x;
-        keypoint_vec[16][i].y = poses[i].pose.right_ankle.as_ref()?.y;
-    }
-
-    Some(keypoint_vec)
+    // x[i][j] is the coorinates of keypoint i as seen from camera j
+    let points_grouped_by_keypoint = transpose_vecvec(&points_grouped_by_camera);
+    Some(points_grouped_by_keypoint)
 }
 
 fn triangulate_from_poses_and_camera_matrices(
-    poses: &[LabeledPose2D],
+    poses: Vec<LabeledPose2D>,
     camera_matrices: Vec<Matrix3x4<f64>>,
 ) -> Vec<Point3<f64>> {
     // Rearrange 2D points to correct order
-    let points2d =
-        collect_points_by_keypoint(poses.as_ref()).expect("Error while collecting points");
+    let points2d = collect_points_by_keypoint(poses).expect("Error while collecting points");
     let points2d_slices: Vec<_> = points2d.iter().map(|v| v.as_slice()).collect();
-    println!("# Poses: {}", poses.len());
-    println!("# Cameras: {}", camera_matrices.len());
-    println!(
-        "points2d_slices: {} (outer), {} (inner)",
-        points2d_slices.len(),
-        points2d_slices[0].len(),
-    );
     // Reconstruct the 3D points
     triangulate_many(points2d_slices.as_ref(), camera_matrices.as_ref())
 }
@@ -166,8 +117,7 @@ impl Controller {
             // See if we have enough cameras to proceed
             if camera_matrices.len() >= self.config.min_cameras {
                 // Reconstruct the 3D points
-                let points3d =
-                    triangulate_from_poses_and_camera_matrices(poses.as_ref(), camera_matrices);
+                let points3d = triangulate_from_poses_and_camera_matrices(poses, camera_matrices);
                 // Send 3D points to VRPN
                 self.poses3d_tx.send(points3d.into()).await?;
             }
