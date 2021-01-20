@@ -55,10 +55,9 @@ fn triangulate_from_poses_and_camera_matrices(
     camera_matrices: Vec<Matrix3x4<f64>>,
 ) -> Vec<Point3<f64>> {
     // Rearrange 2D points to correct order
-    let points2d = collect_points_by_keypoint(poses).expect("Error while collecting points");
-    let points2d_slices: Vec<_> = points2d.iter().map(|v| v.as_slice()).collect();
+    let points2d_slice = collect_points_by_keypoint(poses).expect("Error while collecting points");
     // Reconstruct the 3D points
-    triangulate_many(points2d_slices.as_ref(), camera_matrices.as_ref())
+    triangulate_many(&points2d_slice, &camera_matrices)
 }
 
 impl Controller {

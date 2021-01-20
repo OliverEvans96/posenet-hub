@@ -54,13 +54,16 @@ pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) ->
     return x3d;
 }
 
-pub fn triangulate_many(
-    points2d_slice: &[&[Point2<f64>]],
+pub fn triangulate_many<T>(
+    points2d_slice: &[T],
     camera_poses: &[Matrix3x4<f64>],
-) -> Vec<Point3<f64>> {
+) -> Vec<Point3<f64>>
+where
+    T: AsRef<[Point2<f64>]>,
+{
     points2d_slice
         .iter()
-        .map(|p2d| triangulate(p2d, camera_poses))
+        .map(|p2d| triangulate(p2d.as_ref(), camera_poses))
         .collect()
 }
 
@@ -108,7 +111,7 @@ pub fn _test_rand_triangulate() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::{Point2, Point3, Vector2};
+    use nalgebra::{Point2, Point3};
 
     #[test]
     fn test_projection() {
