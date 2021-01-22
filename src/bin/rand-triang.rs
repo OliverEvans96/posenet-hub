@@ -1,11 +1,12 @@
 use nalgebra::{Matrix3x4, Point3};
-use std::thread::sleep;
-use std::time::Duration;
-use std::time::Instant;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use posenet_vr_hub::controller::triangulate_from_poses_and_camera_matrices;
 use posenet_vr_hub::grpc::client::random_pose;
 use posenet_vr_hub::grpc::server::LabeledPose2D;
+
+type AsyncResult = Result<(), Box<dyn std::error::Error>>;
 
 pub fn randomly_triangulate() -> Vec<Point3<f64>> {
     let num_cameras = 5;
@@ -19,9 +20,39 @@ pub fn randomly_triangulate() -> Vec<Point3<f64>> {
     let camera_matrices = (0..num_cameras).map(|_| Matrix3x4::new_random()).collect();
     return triangulate_from_poses_and_camera_matrices(poses, camera_matrices);
 }
-fn main() -> ! {
+
+fn single_thread_okay() {
     loop {
-        randomly_triangulate();
-        sleep(Duration::from_millis(1000));
+        for _ in 0..3 {
+            randomly_triangulate();
+            thread::sleep(Duration::from_millis(1000));
+        }
     }
+}
+
+fn multi_thread_segfault() {
+    let handles = (0..10).map(|_| {
+        thread::spawn(|| {
+            randomly_triangulate();
+            thread::sleep(Duration::from_millis(1000));
+        })
+    });
+    handles.for_each(|h| h.join().expect("failed to join"));
+}
+
+async fn async_segfault() -> AsyncResult {
+    async fn inner() -> AsyncResult {
+        randomly_triangulate();
+        tokio::time::delay_for(Duration::from_millis(1000)).await;
+        Ok(())
+    }
+    loop {
+        tokio::try_join!(inner(), inner(), inner()).unwrap();
+    }
+}
+
+fn main() {
+    // single_thread__okay();
+    multi_thread_segfault();
+    // async_segfault().await?;
 }
