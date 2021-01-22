@@ -30,6 +30,14 @@ fn single_thread_okay() {
     }
 }
 
+fn one_more_thread_segfault() {
+    let handle = thread::spawn(|| {
+        randomly_triangulate();
+        thread::sleep(Duration::from_millis(1000));
+    });
+    handle.join().expect("failed to join");
+}
+
 fn multi_thread_segfault() {
     let handles = (0..10).map(|_| {
         thread::spawn(|| {
@@ -53,6 +61,7 @@ async fn async_segfault() -> AsyncResult {
 
 fn main() {
     // single_thread__okay();
-    multi_thread_segfault();
+    one_more_thread_segfault();
+    // multi_thread_segfault();
     // async_segfault().await?;
 }
