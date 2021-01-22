@@ -1,6 +1,5 @@
 use async_std::channel;
 use futures::StreamExt;
-use generic_array::arr::Inc;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::error::Error;

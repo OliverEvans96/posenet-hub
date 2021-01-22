@@ -21,7 +21,7 @@ pub fn randomly_triangulate() -> Vec<Point3<f64>> {
 }
 fn main() -> ! {
     loop {
-        posenet_vr_hub::randomly_triangulate();
+        randomly_triangulate();
         sleep(Duration::from_millis(1000));
     }
 }

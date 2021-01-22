@@ -1,13 +1,12 @@
 use async_std::channel;
 use nalgebra::{Matrix3x4, Point2, Point3, Rotation};
-use openmvg::openmvg::{create_camera_matrix, triangulate_many};
-use posenet_vr_hub::openmvg;
 use std::sync::{Arc, RwLock};
 use std::{collections::HashMap, error::Error, time::Duration};
 use tokio::{time::delay_for, try_join};
 
 use crate::grpc::proto::{CameraInfo, Pose3D};
 use crate::grpc::server::{LabeledPose2D, NamedCameraInfo};
+use crate::openmvg::openmvg::{create_camera_matrix, triangulate_many};
 use crate::utils::transpose_vecvec;
 
 pub struct ControllerConfig {
@@ -28,15 +27,6 @@ impl Default for ControllerConfig {
     }
 }
 
-pub struct Controller {
-    cameras_rx: channel::Receiver<NamedCameraInfo>,
-    poses2d_rx: channel::Receiver<LabeledPose2D>,
-    poses3d_tx: channel::Sender<Pose3D>,
-    config: ControllerConfig,
-    poses_hm: Arc<RwLock<HashMap<String, LabeledPose2D>>>,
-    cameras_hm: Arc<RwLock<HashMap<String, CameraInfo>>>,
-}
-
 /// Group associated points by keypoint (projections of same 3d point)
 /// and convert from gRPC to nalgebra type
 fn collect_points_by_keypoint(poses: Vec<LabeledPose2D>) -> Option<Vec<Vec<Point2<f64>>>> {
@@ -50,7 +40,7 @@ fn collect_points_by_keypoint(poses: Vec<LabeledPose2D>) -> Option<Vec<Vec<Point
     Some(points_grouped_by_keypoint)
 }
 
-fn triangulate_from_poses_and_camera_matrices(
+pub fn triangulate_from_poses_and_camera_matrices(
     poses: Vec<LabeledPose2D>,
     camera_matrices: Vec<Matrix3x4<f64>>,
 ) -> Vec<Point3<f64>> {
@@ -60,36 +50,23 @@ fn triangulate_from_poses_and_camera_matrices(
     triangulate_many(&points2d_slice, &camera_matrices)
 }
 
-impl Controller {
-    pub fn new(
-        cameras_rx: channel::Receiver<NamedCameraInfo>,
-        poses2d_rx: channel::Receiver<LabeledPose2D>,
-        poses3d_tx: channel::Sender<Pose3D>,
-        config: ControllerConfig,
-    ) -> Self {
-        Self {
-            cameras_rx,
-            poses2d_rx,
-            poses3d_tx,
-            config,
-            poses_hm: Arc::new(RwLock::new(HashMap::new())),
-            cameras_hm: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
+pub struct Aggregator {
+    cameras_rx: channel::Receiver<NamedCameraInfo>,
+    poses2d_rx: channel::Receiver<LabeledPose2D>,
+    cameras_hm: Arc<RwLock<HashMap<String, CameraInfo>>>,
+    poses_hm: Arc<RwLock<HashMap<String, LabeledPose2D>>>,
+}
 
-    pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
-        // TODO: How to handle failure? exit early? continue?
-        try_join!(
-            self.listen_for_poses(),
-            self.listen_for_cameras(),
-            self.periodically_triangulate()
-        )?;
+impl Aggregator {
+    async fn run(&self) -> Result<(), Box<dyn Error>> {
+        try_join!(self.listen_for_poses(), self.listen_for_cameras())?;
 
         Ok(())
     }
 
     async fn listen_for_poses(&self) -> Result<(), Box<dyn Error>> {
         loop {
+            println!("GET POSES");
             let labeled = self.poses2d_rx.recv().await?;
             self.poses_hm
                 .write()
@@ -100,6 +77,7 @@ impl Controller {
 
     async fn listen_for_cameras(&self) -> Result<(), Box<dyn Error>> {
         loop {
+            println!("GET CAMERAS");
             let camera = self.cameras_rx.recv().await?;
             self.cameras_hm
                 .write()
@@ -107,18 +85,41 @@ impl Controller {
                 .insert(camera.name, camera.info);
         }
     }
+}
 
-    async fn periodically_triangulate(&self) -> Result<(), Box<dyn Error>> {
+// #[derive(Debug)]
+// struct TriangulationError {}
+
+// impl fmt::Display for TriangulationError {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//         f.write_str("Triangulation Error")
+//     }
+// }
+
+// impl Error for TriangulationError {}
+
+pub struct Triangulator {
+    poses3d_tx: channel::Sender<Pose3D>,
+    cameras_hm: Arc<RwLock<HashMap<String, CameraInfo>>>,
+    poses_hm: Arc<RwLock<HashMap<String, LabeledPose2D>>>,
+    config: ControllerConfig,
+}
+
+impl Triangulator {
+    async fn run(&self) -> Result<(), Box<dyn Error>> {
         loop {
+            println!("Triangulator loop");
             // Get current poses and cameras
             let poses = self.get_current_poses();
             let camera_matrices = self.get_current_cameras(poses.as_ref());
+
             // See if we have enough cameras to proceed
             if camera_matrices.len() >= self.config.min_cameras {
                 // Reconstruct the 3D points
                 let points3d = triangulate_from_poses_and_camera_matrices(poses, camera_matrices);
                 // Send 3D points to VRPN
                 self.poses3d_tx.send(points3d.into()).await?;
+                // TODO: Use error
             }
 
             delay_for(self.config.poll_interval).await;
@@ -157,5 +158,53 @@ impl Controller {
                     .expect("Error while getting camera matrix")
             })
             .collect()
+    }
+}
+
+pub struct Controller {
+    cameras_rx: channel::Receiver<NamedCameraInfo>,
+    poses2d_rx: channel::Receiver<LabeledPose2D>,
+    poses3d_tx: channel::Sender<Pose3D>,
+    config: ControllerConfig,
+}
+
+impl Controller {
+    pub fn new(
+        cameras_rx: channel::Receiver<NamedCameraInfo>,
+        poses2d_rx: channel::Receiver<LabeledPose2D>,
+        poses3d_tx: channel::Sender<Pose3D>,
+        config: ControllerConfig,
+    ) -> Self {
+        Self {
+            cameras_rx,
+            poses2d_rx,
+            poses3d_tx,
+            config,
+        }
+    }
+
+    pub async fn run(self) -> Result<(), Box<dyn Error>> {
+        println!("START RUN");
+        let poses_hm = Arc::new(RwLock::new(HashMap::new()));
+        let cameras_hm = Arc::new(RwLock::new(HashMap::new()));
+
+        let triangulator = Triangulator {
+            config: self.config,
+            poses3d_tx: self.poses3d_tx,
+            cameras_hm: Arc::clone(&cameras_hm),
+            poses_hm: Arc::clone(&poses_hm),
+        };
+
+        let aggregator = Aggregator {
+            cameras_rx: self.cameras_rx,
+            poses2d_rx: self.poses2d_rx,
+            cameras_hm,
+            poses_hm,
+        };
+
+        // TODO: How to handle failure? exit early? continue?
+        try_join!(triangulator.run(), aggregator.run());
+
+        Ok(())
     }
 }
