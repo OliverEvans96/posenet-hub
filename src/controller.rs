@@ -203,8 +203,10 @@ impl Controller {
         };
 
         // TODO: How to handle failure? exit early? continue?
-        try_join!(triangulator.run(), aggregator.run());
-
-        Ok(())
+        let result = try_join!(triangulator.run(), aggregator.run());
+        match result {
+            Ok(_) => Ok(()),
+            Err(err) => Err(err),
+        }
     }
 }
