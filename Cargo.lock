@@ -272,6 +272,7 @@ dependencies = [
 [[package]]
 name = "cxx"
 version = "1.0.28"
+source = "git+https://github.com/OliverEvans96/cxx.git#ec791081d04c3811f2fe5032f3f258cd62235842"
 dependencies = [
  "cc",
  "cxxbridge-flags",
@@ -297,10 +298,12 @@ dependencies = [
 [[package]]
 name = "cxxbridge-flags"
 version = "1.0.28"
+source = "git+https://github.com/OliverEvans96/cxx.git#ec791081d04c3811f2fe5032f3f258cd62235842"
 
 [[package]]
 name = "cxxbridge-macro"
 version = "1.0.28"
+source = "git+https://github.com/OliverEvans96/cxx.git#ec791081d04c3811f2fe5032f3f258cd62235842"
 dependencies = [
  "proc-macro2",
  "quote",
