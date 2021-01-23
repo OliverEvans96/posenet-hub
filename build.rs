@@ -1,7 +1,14 @@
 use dotenv::dotenv;
-use std::env;
+use std::{env, error};
 
-fn build_grpc() -> Result<(), Box<dyn std::error::Error>> {
+type UnitResult = Result<(), Box<dyn error::Error>>;
+
+fn build_grpc() -> UnitResult {
+    // gRPC
+    println!("cargo:rerun-if-changed=proto/common.proto");
+    println!("cargo:rerun-if-changed=proto/client.proto");
+    println!("cargo:rerun-if-changed=proto/server.proto");
+
     tonic_build::configure()
         .build_client(true)
         .compile(&["proto/hub.proto"], &["proto"])?;
@@ -9,23 +16,14 @@ fn build_grpc() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn build_cxx() -> Result<(), Box<dyn std::error::Error>> {
+fn build_cxx() -> UnitResult {
     dotenv().ok();
     let eigen_include_dir = env::var("EIGEN_INCLUDE_DIR").expect("EIGEN_INCLUDE_DIR");
-    // println!("cargo:rustc-link-search=/home/oliver/code/rust/eigen-ndarray/cpp");
-    // println!("cargo:rustc-link-lib=dylib=stdc++");
-
-    println!("cargo:rerun-if-changed=proto/common.proto");
-    println!("cargo:rerun-if-changed=proto/client.proto");
-    println!("cargo:rerun-if-changed=proto/server.proto");
 
     println!("cargo:rerun-if-changed=include/eigen.hpp");
     println!("cargo:rerun-if-changed=src/openmvg/eigen.cpp");
-
     println!("cargo:rerun-if-changed=include/openmvg.hpp");
     println!("cargo:rerun-if-changed=src/openmvg/openmvg.cpp");
-
-    println!("EIGEN_INCLUDE_DIR = {}", eigen_include_dir);
 
     cxx_build::bridge("src/openmvg/eigen.rs")
         .file("src/openmvg/eigen.cpp")
@@ -55,9 +53,31 @@ fn build_cxx() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn build_vrpn() -> UnitResult {
+    dotenv().ok();
+
+    println!("cargo:rerun-if-changed=include/vrpn.hpp");
+    println!("cargo:rerun-if-changed=src/openmvg/vrpn.cpp");
+
+    cxx_build::bridge("src/vrpn/vrpn.rs")
+        .file("src/vrpn/vrpn.cpp")
+        .flag_if_supported("-std=c++14")
+        // Without this flag, I was getting random segfaults.
+        // See https://github.com/openMVG/openMVG/issues/1847
+        .flag_if_supported("-march=native")
+        .compile("posenet_vr_vrpn");
+
+    println!("cargo:rustc-link-lib=vrpn");
+    // TODO: Might not need this after disabling tracker
+    println!("cargo:rustc-link-lib=quat");
+
+    Ok(())
+}
+
+fn main() -> UnitResult {
     build_grpc()?;
     build_cxx()?;
+    build_vrpn()?;
 
     Ok(())
 }
