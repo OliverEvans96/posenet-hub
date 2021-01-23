@@ -1,200 +1,73 @@
 #include "posenet-vr-hub/include/vrpn.hpp"
 
-/*
+#include <vrpn_Connection.h>
 
-// Triangulation
+using namespace std;
 
-unique_ptr<Vec4> triangulate_nview(
-    // x's are landmark bearing vectors in each camera
-    const unique_ptr<Mat3X> x,
-    // Ps are projective cameras
-    const unique_ptr<vector<Mat34>> Ps) {
-    auto X = make_unique<Vec4>();
-    TriangulateNView(*x, *Ps, X.get());
-    return X;
+/***************** PoseNetVRPNServer ******************/
+// Based on http://www.vrgeeks.org/vrpn/tutorial---vrpn-server
+
+PoseNetVrpnServer::PoseNetVrpnServer(const char *device_name,
+                                     shared_ptr<vrpn_Connection_IP> connection)
+    : vrpn_Analog(device_name, connection.get()) {
+    vrpn_Analog::num_channel = NUM_CHANNELS;
+
+    initialize_channels();
 }
-*/
 
-// From http://www.vrgeeks.org/vrpn/tutorial---vrpn-server
-// VRPN Server tutorial
-// by Sebastien Kuntz, for the VR Geeks (http://www.vrgeeks.org)
-// August 2011
+PoseNetVrpnServer::~PoseNetVrpnServer() { printf("VRPN server terminating\n"); }
 
-/////////////////////// TRACKER /////////////////////////////
-
-// your tracker class must inherit from the vrpn_Tracker class
-class myTracker : public vrpn_Tracker {
-   public:
-    myTracker(vrpn_Connection *c = 0);
-    virtual ~myTracker(){};
-
-    virtual void mainloop();
-
-   protected:
-    struct timeval _timestamp;
-};
-
-myTracker::myTracker(vrpn_Connection *c) : vrpn_Tracker("Tracker0", c) {}
-
-void myTracker::mainloop() {
-    vrpn_gettimeofday(&_timestamp, NULL);
-
-    vrpn_Tracker::timestamp = _timestamp;
-
-    // We will just put a fake data in the position of our tracker
-    static float angle = 0;
-    angle += 0.01f;
-
-    // the pos array contains the position value of the tracker
-    // XXX Set your values here
-    pos[0] = sinf(angle);
-    pos[1] = cosf(angle);
-    pos[2] = sinf(angle) + cosf(angle);
-
-    static default_random_engine generator;
-    uniform_real_distribution<double> quatdist(0, 1);
-
-    // the d_quat array contains the orientation value of the tracker, stored as
-    // a quaternion
-    // XXX Set your values here
-    d_quat[0] = quatdist(generator);
-    d_quat[1] = quatdist(generator);
-    d_quat[2] = quatdist(generator);
-    d_quat[3] = quatdist(generator);
-
-    char msgbuf[1000];
-
-    d_sensor = 0;
-
-    int len = vrpn_Tracker::encode_to(msgbuf);
-
-    if (d_connection->pack_message(len, _timestamp, position_m_id, d_sender_id,
-                                   msgbuf, vrpn_CONNECTION_LOW_LATENCY)) {
-        fprintf(stderr, "can't write message: tossing\n");
+void PoseNetVrpnServer::initialize_channels() {
+    for (vrpn_int32 i = 0; i < vrpn_Analog::num_channel; i++) {
+        vrpn_Analog::channel[i] = vrpn_Analog::last[i] = 0.0;
     }
-
-    server_mainloop();
 }
 
-/*
-/////////////////////// ANALOG /////////////////////////////
-
-// your analog class must inherin from the vrpn_Analog class
-class myAnalog : public vrpn_Analog {
-   public:
-    myAnalog(vrpn_Connection *c, float _x);
-    ~myAnalog() { rust_stop(&status); };
-
-    virtual void mainloop();
-
-   protected:
-    struct timeval _timestamp;
-    float x;
-    RustVrpnStatus status;
-};
-
-myAnalog::myAnalog(vrpn_Connection *c, float _x)
-    : vrpn_Analog("Analog0", c) {
-    x = _x;
-    vrpn_Analog::num_channel = 10;
-
-    vrpn_uint32 i;
-
-    for (i = 0; i < (vrpn_uint32)vrpn_Analog::num_channel; i++) {
-        vrpn_Analog::channel[i] = vrpn_Analog::last[i] = rust_func(x);
+void PoseNetVrpnServer::update_values(rust::Slice<const double> values) {
+    size_t num_values = values.length();
+    if (num_values != NUM_CHANNELS) {
+        cout << "ERROR: Expected " << NUM_CHANNELS << " values, but got "
+             << num_values << endl;
+    } else {
+        for (size_t i = 0; i < num_values; i++) {
+            channel[i] = values[i];
+        }
     }
-
-    // Start background thread to update values from rust
-    status = rust_create_status();
-    rust_init(vrpn_Analog::channel, vrpn_Analog::num_channel, &status);
 }
 
-void myAnalog::mainloop() {
+void PoseNetVrpnServer::mainloop() {
+    // Update clock
     vrpn_gettimeofday(&_timestamp, NULL);
     vrpn_Analog::timestamp = _timestamp;
-
-    static int i = 0;
-
-    // Call rust to modify channel values
-    // rust_mod_arr(channel, vrpn_Analog::num_channel);
 
     // Send any changes out over the connection.
     vrpn_Analog::report_changes();
 
-    server_mainloop();
-
-    if (i++ == 5) rust_stop(&status);
-}
-
-/////////////////////// BUTTON /////////////////////////////
-
-// your button class must inherit from the vrpn_Button class
-class myButton : public vrpn_Button {
-   public:
-    myButton(vrpn_Connection *c = 0);
-    virtual ~myButton(){};
-
-    virtual void mainloop();
-
-   protected:
-    struct timeval _timestamp;
-};
-
-myButton::myButton(vrpn_Connection *c) : vrpn_Button("Button0", c) {
-    // Setting the number of buttons to 10
-    vrpn_Button::num_buttons = 10;
-
-    vrpn_uint32 i;
-
-    // initializing all buttons to false
-    for (i = 0; i < (vrpn_uint32)vrpn_Button::num_buttons; i++) {
-        vrpn_Button::buttons[i] = vrpn_Button::lastbuttons[i] = 0;
-    }
-}
-
-void myButton::mainloop() {
-    vrpn_gettimeofday(&_timestamp, NULL);
-    vrpn_Button::timestamp = _timestamp;
-
-    // forcing values to change otherwise vrpn doesn't report the changes
-    static int b = 0;
-    b++;
-
-    for (unsigned int i = 0; i < vrpn_Button::num_buttons; i++) {
-        // XXX Set your values here !
-        buttons[i] = (i + b) % 2;
-    }
-
-    // Send any changes out over the connection.
-    vrpn_Button::report_changes();
-
+    // Do other important VRPN stuff under the hood
     server_mainloop();
 }
 
-*/
-////////////// MAIN ///////////////////
+/**************** Rust FFI Functions *****************/
 
-void run_vrpn() {
-    // Creating the network server
-    vrpn_Connection_IP *m_Connection = new vrpn_Connection_IP();
+unique_ptr<PoseNetVrpnContainer> create_server(rust::Str device_name) {
+    string device_name_str(device_name.data(), device_name.size());
+    auto connection = make_shared<vrpn_Connection_IP>();
+    auto server =
+        make_unique<PoseNetVrpnServer>(device_name_str.data(), connection);
+    auto container =
+        make_unique<PoseNetVrpnContainer>(move(server), move(connection));
+    printf("VRPN server with device '%s' started.\n", device_name_str.data());
+    return container;
+}
 
-    // Creating the tracker
-    myTracker *serverTracker = new myTracker(m_Connection);
-    // myAnalog *serverAnalog = new myAnalog(m_Connection, 4);
-    // myButton *serverButton = new myButton(m_Connection);
+void mainloop(unique_ptr<PoseNetVrpnContainer> &container,
+              rust::Slice<const double> values) {
+    // Update Server
+    container->server->update_values(values);
+    container->server->mainloop();
 
-    cout << "Created VRPN server." << endl;
-
-    while (true) {
-        serverTracker->mainloop();
-        // serverAnalog->mainloop();
-        // serverButton->mainloop();
-
-        m_Connection->mainloop();
-
-        // Calling Sleep to let the CPU breathe.
-        sleep(1);
-    }
+    // Update Connection
+    container->connection->mainloop();
 }
 
 // Client
@@ -210,14 +83,6 @@ void VRPN_CALLBACK handle_analog(void *userData, const vrpn_ANALOGCB a) {
     cout << endl;
 }
 
-void VRPN_CALLBACK handle_tracker(void *userData, const vrpn_TRACKERCB a) {
-    cout << "Tracker:";
-    printf("Position: (%.2f, %.2f, %.2f)\n", a.pos[0], a.pos[1], a.pos[2]);
-    printf("Quat: (%.2f, %.2f, %.2f, %.2f)\n", a.quat[0], a.quat[1], a.quat[2],
-           a.quat[3]);
-    cout << endl;
-}
-
 void run_analog_client(rust::Str connection_string) {
     vrpn_Analog_Remote *vrpnAnalog =
         new vrpn_Analog_Remote(connection_string.data());
@@ -226,16 +91,5 @@ void run_analog_client(rust::Str connection_string) {
 
     while (1) {
         vrpnAnalog->mainloop();
-    }
-}
-
-void run_tracker_client(rust::Str connection_string) {
-    vrpn_Tracker_Remote *vrpnTracker =
-        new vrpn_Tracker_Remote(connection_string.data());
-
-    vrpnTracker->register_change_handler(0, handle_tracker);
-
-    while (1) {
-        vrpnTracker->mainloop();
     }
 }
