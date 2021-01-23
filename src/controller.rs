@@ -66,7 +66,6 @@ impl Aggregator {
 
     async fn listen_for_poses(&self) -> Result<(), Box<dyn Error>> {
         loop {
-            println!("GET POSES");
             let labeled = self.poses2d_rx.recv().await?;
             self.poses_hm
                 .write()
@@ -77,7 +76,6 @@ impl Aggregator {
 
     async fn listen_for_cameras(&self) -> Result<(), Box<dyn Error>> {
         loop {
-            println!("GET CAMERAS");
             let camera = self.cameras_rx.recv().await?;
             self.cameras_hm
                 .write()
@@ -108,7 +106,6 @@ pub struct Triangulator {
 impl Triangulator {
     async fn run(&self) -> Result<(), Box<dyn Error>> {
         loop {
-            println!("Triangulator loop");
             // Get current poses and cameras
             let poses = self.get_current_poses();
             let camera_matrices = self.get_current_cameras(poses.as_ref());
@@ -184,7 +181,6 @@ impl Controller {
     }
 
     pub async fn run(self) -> Result<(), Box<dyn Error>> {
-        println!("START RUN");
         let poses_hm = Arc::new(RwLock::new(HashMap::new()));
         let cameras_hm = Arc::new(RwLock::new(HashMap::new()));
 

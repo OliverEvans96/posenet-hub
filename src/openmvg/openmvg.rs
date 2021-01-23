@@ -28,9 +28,6 @@ mod ffi {
 
 pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) -> Point3<f64> {
     assert_eq!(points2d.len(), camera_poses.len());
-    println!("Triangulating:");
-    println!("Points: {:#?}", points2d);
-    println!("Cameras: {:#?}", camera_poses);
     let x2d_h_mat = Matrix3xN::<f64>::from_columns(
         points2d
             .iter()
@@ -39,11 +36,7 @@ pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) ->
             .as_slice(),
     )
     .to_eigen();
-
     let camera_mat = camera_poses.to_eigen();
-
-    println!("x = {:?}", x2d_h_mat);
-    println!("P = {:?}", camera_mat);
 
     let x3d_h_eig = ffi::triangulate_nview(x2d_h_mat, camera_mat);
     let x3d_h = x3d_h_eig.to_nalgebra();
@@ -91,23 +84,6 @@ pub fn get_projection(x3d: Point3<f64>, p: Matrix3x4<f64>) -> Point2<f64> {
     x2d.expect("Point was not homogeneous, projection failed.")
 }
 
-pub fn _test_rand_triangulate() {
-    use nalgebra::Vector2;
-    let nviews = 5;
-    let mut points2d = Vec::<Point2<f64>>::with_capacity(nviews);
-    let mut camera_poses = Vec::<Matrix3x4<f64>>::with_capacity(nviews);
-
-    for _ in 0..nviews {
-        let point2d = Point2::from(Vector2::new_random());
-        let camera_pose = Matrix3x4::new_random();
-        points2d.push(point2d);
-        camera_poses.push(camera_pose);
-    }
-
-    let x3d: Point3<f64> = triangulate(points2d.as_slice(), camera_poses.as_mut_slice());
-    println!("RAND x3d = {}", x3d);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,7 +104,20 @@ mod tests {
 
     #[test]
     fn test_rand_triangulate() {
-        _test_rand_triangulate();
+        use nalgebra::Vector2;
+        let nviews = 5;
+        let mut points2d = Vec::<Point2<f64>>::with_capacity(nviews);
+        let mut camera_poses = Vec::<Matrix3x4<f64>>::with_capacity(nviews);
+
+        for _ in 0..nviews {
+            let point2d = Point2::from(Vector2::new_random());
+            let camera_pose = Matrix3x4::new_random();
+            points2d.push(point2d);
+            camera_poses.push(camera_pose);
+        }
+
+        let x3d: Point3<f64> = triangulate(points2d.as_slice(), camera_poses.as_mut_slice());
+        println!("RAND x3d = {}", x3d);
     }
 
     #[test]
