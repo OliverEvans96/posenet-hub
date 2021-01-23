@@ -1,3 +1,5 @@
+pub mod controller;
 pub mod grpc;
-mod openmvg;
+pub mod openmvg;
+mod utils;
 pub mod vrpn;

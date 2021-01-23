@@ -13,7 +13,7 @@ nalgebra = "0.24"
 generic-array = "0.14"
 tonic = "0.3"
 prost = "0.6"
-tokio = {version = "0.2", features=["macros", "rt-threaded", "time"]}
+tokio = {version = "0.2", features=["macros", "time"]}
 futures = { version = "0.3", default-features = false, features = ["alloc"] }
 async-std = "1.9"
 rand = "0.8"

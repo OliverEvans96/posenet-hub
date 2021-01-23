@@ -12,18 +12,19 @@ use super::proto::{CameraExtrinsics, CameraInfo};
 use super::proto::{EulerAngles, Point2D, Point3D, Pose2D, Pose2DMessage};
 
 pub async fn hello(client: &mut HubServiceClient<Channel>) -> Result<String, Box<dyn Error>> {
+    let mut rng = thread_rng();
     let camera_info = CameraInfo {
         intrinsics: None,
         extrinsics: Some(CameraExtrinsics {
             position: Some(Point3D {
-                x: 0.0,
-                y: 0.2,
-                z: 0.0,
+                x: rng.gen(),
+                y: rng.gen(),
+                z: rng.gen(),
             }),
             orientation: Some(EulerAngles {
-                yaw: 0.3,
-                pitch: 0.0,
-                roll: 0.0,
+                yaw: rng.gen(),
+                pitch: rng.gen(),
+                roll: rng.gen(),
             }),
         }),
     };

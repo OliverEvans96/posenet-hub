@@ -1240,7 +1240,6 @@ dependencies = [
  "lazy_static",
  "memchr",
  "mio",
- "num_cpus",
  "pin-project-lite 0.1.11",
  "slab",
  "tokio-macros",
