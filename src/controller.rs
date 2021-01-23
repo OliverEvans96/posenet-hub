@@ -115,12 +115,16 @@ impl Triangulator {
                 // Reconstruct the 3D points
                 let points3d = triangulate_from_poses_and_camera_matrices(poses, camera_matrices);
                 // Send 3D points to VRPN
-                self.poses3d_tx.send(points3d.into()).await?;
-                // TODO: Use error
+                self.publish_pose3d(points3d.into()).await?;
             }
 
             delay_for(self.config.poll_interval).await;
         }
+    }
+
+    async fn publish_pose3d(&self, pose: Pose3D) -> Result<(), Box<dyn Error>> {
+        self.poses3d_tx.send(pose).await?;
+        Ok(())
     }
 
     fn get_current_poses(&self) -> Vec<LabeledPose2D> {
@@ -159,24 +163,24 @@ impl Triangulator {
 }
 
 pub struct Controller {
+    config: ControllerConfig,
     cameras_rx: channel::Receiver<NamedCameraInfo>,
     poses2d_rx: channel::Receiver<LabeledPose2D>,
     poses3d_tx: channel::Sender<Pose3D>,
-    config: ControllerConfig,
 }
 
 impl Controller {
     pub fn new(
+        config: ControllerConfig,
         cameras_rx: channel::Receiver<NamedCameraInfo>,
         poses2d_rx: channel::Receiver<LabeledPose2D>,
         poses3d_tx: channel::Sender<Pose3D>,
-        config: ControllerConfig,
     ) -> Self {
         Self {
+            config,
             cameras_rx,
             poses2d_rx,
             poses3d_tx,
-            config,
         }
     }
 

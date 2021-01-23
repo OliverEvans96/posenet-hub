@@ -58,3 +58,10 @@ where
 
     result
 }
+
+/// Pop last n elements from Vec
+/// See https://stackoverflow.com/a/28952552/4228052
+pub fn pop_n<T>(v: &mut Vec<T>, n: usize) -> Vec<T> {
+    let final_length = v.len().saturating_sub(n);
+    v.split_off(final_length)
+}

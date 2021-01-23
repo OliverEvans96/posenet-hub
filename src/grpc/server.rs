@@ -2,9 +2,9 @@ use async_std::channel;
 use futures::StreamExt;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use std::error::Error;
 use std::iter;
 use std::time::Instant;
+use std::{error::Error, net::SocketAddr};
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 
 use super::proto::hub_service_server::{HubService, HubServiceServer};
@@ -22,7 +22,7 @@ fn generate_name() -> String {
 
 pub struct HubServer {
     cameras_tx: channel::Sender<NamedCameraInfo>,
-    poses_tx: channel::Sender<LabeledPose2D>,
+    poses2d_tx: channel::Sender<LabeledPose2D>,
 }
 
 #[derive(Debug)]
@@ -70,7 +70,7 @@ impl HubService for HubServer {
                     time: Instant::now(),
                     pose,
                 };
-                self.poses_tx
+                self.poses2d_tx
                     .send(labeled)
                     .await
                     .expect("Pose channel was closed.");
@@ -86,22 +86,56 @@ impl HubService for HubServer {
     }
 }
 
-pub async fn main(
+pub struct GrpcConfig {
+    addr: SocketAddr,
+}
+
+impl GrpcConfig {
+    pub fn new(ip: &str, port: u16) -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
+            addr: format!("{}:{}", ip, port).parse()?,
+        })
+    }
+}
+
+impl Default for GrpcConfig {
+    fn default() -> Self {
+        GrpcConfig::new("[::1]", 50051).expect("Default GRPC configuration invalid!")
+    }
+}
+
+pub struct GrpcServer {
+    config: GrpcConfig,
     cameras_tx: channel::Sender<NamedCameraInfo>,
-    poses_tx: channel::Sender<LabeledPose2D>,
-) -> Result<(), Box<dyn Error>> {
-    let addr = "[::1]:50051".parse()?;
-    let hub_server = HubServer {
-        cameras_tx,
-        poses_tx,
-    };
+    poses2d_tx: channel::Sender<LabeledPose2D>,
+}
 
-    println!("PoseNet Hub gRPC service listening on {}", addr);
+impl GrpcServer {
+    pub fn new(
+        config: GrpcConfig,
+        cameras_tx: channel::Sender<NamedCameraInfo>,
+        poses2d_tx: channel::Sender<LabeledPose2D>,
+    ) -> Self {
+        Self {
+            config,
+            cameras_tx,
+            poses2d_tx,
+        }
+    }
 
-    Server::builder()
-        .add_service(HubServiceServer::new(hub_server))
-        .serve(addr)
-        .await?;
+    pub async fn run(self) -> Result<(), Box<dyn Error>> {
+        println!("PoseNet Hub gRPC service listening on {}", self.config.addr);
 
-    Ok(())
+        let hub_server = HubServer {
+            cameras_tx: self.cameras_tx,
+            poses2d_tx: self.poses2d_tx,
+        };
+
+        Server::builder()
+            .add_service(HubServiceServer::new(hub_server))
+            .serve(self.config.addr)
+            .await?;
+
+        Ok(())
+    }
 }
