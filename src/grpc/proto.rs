@@ -1,5 +1,13 @@
 tonic::include_proto!("posenet_vr");
 
+use crate::utils::pop_n;
+
+// PoseNet returns 17 points on the body
+const NUM_KEYPOINTS: usize = 17;
+const NDIM: usize = 3;
+// (x,y,z) for 16 keypoints
+const NUM_CHANNELS: usize = NDIM * NUM_KEYPOINTS;
+
 // Convert between gRPC Point and nalgebra::Point
 
 impl From<nalgebra::Point2<f64>> for Point2D {
@@ -131,5 +139,76 @@ impl From<Pose3D> for Vec<nalgebra::Point3<f64>> {
             pose.left_ankle.unwrap().into(),
             pose.right_ankle.unwrap().into(),
         ]
+    }
+}
+
+// Serialization for VRPN
+
+impl IntoIterator for Point3D {
+    type Item = f64;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        vec![self.x, self.y, self.z].into_iter()
+    }
+}
+
+impl From<Vec<f64>> for Point3D {
+    fn from(v: Vec<f64>) -> Self {
+        Self {
+            x: v[0],
+            y: v[1],
+            z: v[2],
+        }
+    }
+}
+
+impl From<Pose3D> for Vec<f64> {
+    fn from(pose: Pose3D) -> Self {
+        let mut values = Vec::<f64>::with_capacity(NUM_CHANNELS);
+        values.extend(pose.nose.unwrap());
+        values.extend(pose.left_eye.unwrap());
+        values.extend(pose.right_eye.unwrap());
+        values.extend(pose.left_ear.unwrap());
+        values.extend(pose.right_ear.unwrap());
+        values.extend(pose.left_shoulder.unwrap());
+        values.extend(pose.right_shoulder.unwrap());
+        values.extend(pose.left_elbow.unwrap());
+        values.extend(pose.right_elbow.unwrap());
+        values.extend(pose.left_wrist.unwrap());
+        values.extend(pose.right_wrist.unwrap());
+        values.extend(pose.left_hip.unwrap());
+        values.extend(pose.right_hip.unwrap());
+        values.extend(pose.left_knee.unwrap());
+        values.extend(pose.right_knee.unwrap());
+        values.extend(pose.left_ankle.unwrap());
+        values.extend(pose.right_ankle.unwrap());
+        assert_eq!(values.len(), NUM_CHANNELS);
+
+        values
+    }
+}
+
+impl From<Vec<f64>> for Pose3D {
+    fn from(mut values: Vec<f64>) -> Self {
+        Pose3D {
+            nose: Some(pop_n(&mut values, NDIM).into()),
+            left_eye: Some(pop_n(&mut values, NDIM).into()),
+            right_eye: Some(pop_n(&mut values, NDIM).into()),
+            left_ear: Some(pop_n(&mut values, NDIM).into()),
+            right_ear: Some(pop_n(&mut values, NDIM).into()),
+            left_shoulder: Some(pop_n(&mut values, NDIM).into()),
+            right_shoulder: Some(pop_n(&mut values, NDIM).into()),
+            left_elbow: Some(pop_n(&mut values, NDIM).into()),
+            right_elbow: Some(pop_n(&mut values, NDIM).into()),
+            left_wrist: Some(pop_n(&mut values, NDIM).into()),
+            right_wrist: Some(pop_n(&mut values, NDIM).into()),
+            left_hip: Some(pop_n(&mut values, NDIM).into()),
+            right_hip: Some(pop_n(&mut values, NDIM).into()),
+            left_knee: Some(pop_n(&mut values, NDIM).into()),
+            right_knee: Some(pop_n(&mut values, NDIM).into()),
+            left_ankle: Some(pop_n(&mut values, NDIM).into()),
+            right_ankle: Some(pop_n(&mut values, NDIM).into()),
+        }
     }
 }
