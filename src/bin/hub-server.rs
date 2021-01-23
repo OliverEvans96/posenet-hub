@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Create communication channels
     let (cameras_tx, cameras_rx) = channel::unbounded::<NamedCameraInfo>();
     let (poses2d_tx, poses2d_rx) = channel::unbounded::<LabeledPose2D>();
-    let (poses3d_tx, poses3d_rx) = channel::unbounded::<Pose3D>();
+    let (poses3d_tx, poses3d_rx) = channel::unbounded::<Option<Pose3D>>();
 
     // Create controller
     let controller_config = ControllerConfig::default();

@@ -85,19 +85,8 @@ impl Aggregator {
     }
 }
 
-// #[derive(Debug)]
-// struct TriangulationError {}
-
-// impl fmt::Display for TriangulationError {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         f.write_str("Triangulation Error")
-//     }
-// }
-
-// impl Error for TriangulationError {}
-
 pub struct Triangulator {
-    poses3d_tx: channel::Sender<Pose3D>,
+    poses3d_tx: channel::Sender<Option<Pose3D>>,
     cameras_hm: Arc<RwLock<HashMap<String, CameraInfo>>>,
     poses_hm: Arc<RwLock<HashMap<String, LabeledPose2D>>>,
     config: ControllerConfig,
@@ -114,16 +103,20 @@ impl Triangulator {
             if camera_matrices.len() >= self.config.min_cameras {
                 // Reconstruct the 3D points
                 let points3d = triangulate_from_poses_and_camera_matrices(poses, camera_matrices);
+                let pose3d = points3d.into();
                 // Send 3D points to VRPN
-                self.publish_pose3d(points3d.into()).await?;
+                self.poses3d_tx.send(Some(pose3d)).await?;
+            } else {
+                // Otherwise, tell VRPN there are no new poses
+                self.poses3d_tx.send(None).await?;
             }
 
+            // This controls the VRPN update interval
             delay_for(self.config.poll_interval).await;
         }
     }
 
     async fn publish_pose3d(&self, pose: Pose3D) -> Result<(), Box<dyn Error>> {
-        self.poses3d_tx.send(pose).await?;
         Ok(())
     }
 
@@ -166,7 +159,7 @@ pub struct Controller {
     config: ControllerConfig,
     cameras_rx: channel::Receiver<NamedCameraInfo>,
     poses2d_rx: channel::Receiver<LabeledPose2D>,
-    poses3d_tx: channel::Sender<Pose3D>,
+    poses3d_tx: channel::Sender<Option<Pose3D>>,
 }
 
 impl Controller {
@@ -174,7 +167,7 @@ impl Controller {
         config: ControllerConfig,
         cameras_rx: channel::Receiver<NamedCameraInfo>,
         poses2d_rx: channel::Receiver<LabeledPose2D>,
-        poses3d_tx: channel::Sender<Pose3D>,
+        poses3d_tx: channel::Sender<Option<Pose3D>>,
     ) -> Self {
         Self {
             config,

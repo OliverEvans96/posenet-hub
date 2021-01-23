@@ -1,7 +1,7 @@
 use async_std::channel;
 use std::{error::Error, net::SocketAddr};
 
-use super::vrpn::{ffi, mainloop};
+use super::vrpn::{ffi, update_values};
 use crate::grpc::proto::Pose3D;
 
 pub struct VrpnConfig {
@@ -26,11 +26,11 @@ impl Default for VrpnConfig {
 
 pub struct VrpnServer {
     config: VrpnConfig,
-    poses3d_rx: channel::Receiver<Pose3D>,
+    poses3d_rx: channel::Receiver<Option<Pose3D>>,
 }
 
 impl VrpnServer {
-    pub fn new(config: VrpnConfig, poses3d_rx: channel::Receiver<Pose3D>) -> Self {
+    pub fn new(config: VrpnConfig, poses3d_rx: channel::Receiver<Option<Pose3D>>) -> Self {
         Self { config, poses3d_rx }
     }
 
@@ -39,8 +39,16 @@ impl VrpnServer {
 
         let mut server = ffi::create_server(&self.config.device_name);
         loop {
-            let pose = self.poses3d_rx.recv().await?;
-            mainloop(&mut server, pose);
+            // Check for new pose from controller
+            let message = self.poses3d_rx.recv().await?;
+
+            // Update values from pose if available
+            if let Some(pose) = message {
+                update_values(&mut server, pose);
+            }
+
+            // Talk to clients
+            ffi::mainloop(&mut server);
         }
     }
 }

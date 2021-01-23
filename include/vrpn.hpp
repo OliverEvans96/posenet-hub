@@ -46,8 +46,11 @@ class PoseNetVrpnContainer {
 
 // Server
 std::unique_ptr<PoseNetVrpnContainer> create_server(rust::Str device_name);
-void mainloop(std::unique_ptr<PoseNetVrpnContainer>& container,
-              rust::Slice<const double> values);
+
+void update_values(std::unique_ptr<PoseNetVrpnContainer>& container,
+                   rust::Slice<const double> values);
+
+void mainloop(std::unique_ptr<PoseNetVrpnContainer>& container);
 
 // Client
 void run_analog_client(rust::Str connection_string);

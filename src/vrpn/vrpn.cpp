@@ -60,12 +60,14 @@ unique_ptr<PoseNetVrpnContainer> create_server(rust::Str device_name) {
     return container;
 }
 
-void mainloop(unique_ptr<PoseNetVrpnContainer> &container,
-              rust::Slice<const double> values) {
-    // Update Server
+void update_values(unique_ptr<PoseNetVrpnContainer> &container,
+                   rust::Slice<const double> values) {
     container->server->update_values(values);
-    container->server->mainloop();
+}
 
+void mainloop(unique_ptr<PoseNetVrpnContainer> &container) {
+    // Update Server
+    container->server->mainloop();
     // Update Connection
     container->connection->mainloop();
 }
