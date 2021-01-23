@@ -1,0 +1,8 @@
+stages:
+  - test
+
+run-tests:
+  stage: test
+  image: rust
+  script:
+    - cargo test
