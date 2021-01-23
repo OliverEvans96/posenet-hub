@@ -31,12 +31,18 @@ fn build_cxx() -> Result<(), Box<dyn std::error::Error>> {
         .file("src/openmvg/eigen.cpp")
         .include(&eigen_include_dir)
         .flag_if_supported("-std=c++14")
+        // Without this flag, I was getting random segfaults.
+        // See https://github.com/openMVG/openMVG/issues/1847
+        .flag_if_supported("-march=native")
         .compile("posenet_vr_eigen");
 
     cxx_build::bridge("src/openmvg/openmvg.rs")
         .file("src/openmvg/openmvg.cpp")
         .include(&eigen_include_dir)
         .flag_if_supported("-std=c++14")
+        // Without this flag, I was getting random segfaults.
+        // See https://github.com/openMVG/openMVG/issues/1847
+        .flag_if_supported("-march=native")
         .compile("posenet_vr_openmvg");
 
     // NOTE: `cargo test` fails if this comes before cxx_build::bridge.
