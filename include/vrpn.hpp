@@ -5,6 +5,7 @@
 
 #include <iostream>
 #include <memory>
+#include <random>
 
 #include "posenet-vr-hub/src/vrpn/vrpn.rs.h"
 #include "vrpn_Analog.h"
@@ -26,3 +27,6 @@ unique_ptr<Vec4> triangulate_nview(
 */
 
 void run_vrpn();
+
+void run_analog_client(rust::Str connection_string);
+void run_tracker_client(rust::Str connection_string);

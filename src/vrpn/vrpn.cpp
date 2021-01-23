@@ -1,4 +1,5 @@
 #include "posenet-vr-hub/include/vrpn.hpp"
+
 /*
 
 // Triangulation
@@ -33,8 +34,7 @@ class myTracker : public vrpn_Tracker {
     struct timeval _timestamp;
 };
 
-myTracker::myTracker(vrpn_Connection *c /*= 0 */)
-    : vrpn_Tracker("Tracker0", c) {}
+myTracker::myTracker(vrpn_Connection *c) : vrpn_Tracker("Tracker0", c) {}
 
 void myTracker::mainloop() {
     vrpn_gettimeofday(&_timestamp, NULL);
@@ -43,21 +43,24 @@ void myTracker::mainloop() {
 
     // We will just put a fake data in the position of our tracker
     static float angle = 0;
-    angle += 0.001f;
+    angle += 0.01f;
 
     // the pos array contains the position value of the tracker
     // XXX Set your values here
     pos[0] = sinf(angle);
-    pos[1] = 0.0f;
-    pos[2] = 0.0f;
+    pos[1] = cosf(angle);
+    pos[2] = sinf(angle) + cosf(angle);
+
+    static default_random_engine generator;
+    uniform_real_distribution<double> quatdist(0, 1);
 
     // the d_quat array contains the orientation value of the tracker, stored as
     // a quaternion
     // XXX Set your values here
-    d_quat[0] = 0.0f;
-    d_quat[1] = 0.0f;
-    d_quat[2] = 0.0f;
-    d_quat[3] = 1.0f;
+    d_quat[0] = quatdist(generator);
+    d_quat[1] = quatdist(generator);
+    d_quat[2] = quatdist(generator);
+    d_quat[3] = quatdist(generator);
 
     char msgbuf[1000];
 
@@ -191,5 +194,48 @@ void run_vrpn() {
 
         // Calling Sleep to let the CPU breathe.
         sleep(1);
+    }
+}
+
+// Client
+// From http://www.vrgeeks.org/vrpn/tutorial---use-vrpn
+
+void VRPN_CALLBACK handle_analog(void *userData, const vrpn_ANALOGCB a) {
+    cout << "Analog : ";
+
+    for (int i = 0; i < a.num_channel; i++) {
+        cout << a.channel[i] << " ";
+    }
+
+    cout << endl;
+}
+
+void VRPN_CALLBACK handle_tracker(void *userData, const vrpn_TRACKERCB a) {
+    cout << "Tracker:";
+    printf("Position: (%.2f, %.2f, %.2f)\n", a.pos[0], a.pos[1], a.pos[2]);
+    printf("Quat: (%.2f, %.2f, %.2f, %.2f)\n", a.quat[0], a.quat[1], a.quat[2],
+           a.quat[3]);
+    cout << endl;
+}
+
+void run_analog_client(rust::Str connection_string) {
+    vrpn_Analog_Remote *vrpnAnalog =
+        new vrpn_Analog_Remote(connection_string.data());
+
+    vrpnAnalog->register_change_handler(0, handle_analog);
+
+    while (1) {
+        vrpnAnalog->mainloop();
+    }
+}
+
+void run_tracker_client(rust::Str connection_string) {
+    vrpn_Tracker_Remote *vrpnTracker =
+        new vrpn_Tracker_Remote(connection_string.data());
+
+    vrpnTracker->register_change_handler(0, handle_tracker);
+
+    while (1) {
+        vrpnTracker->mainloop();
     }
 }
