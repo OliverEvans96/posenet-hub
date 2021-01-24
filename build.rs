@@ -18,7 +18,8 @@ fn build_grpc() -> UnitResult {
 
 fn build_cxx() -> UnitResult {
     dotenv().ok();
-    let eigen_include_dir = env::var("EIGEN_INCLUDE_DIR").expect("EIGEN_INCLUDE_DIR");
+    let eigen_include_dir =
+        env::var("EIGEN_INCLUDE_DIR").unwrap_or("/usr/include/eigen3".to_owned());
 
     println!("cargo:rerun-if-changed=include/eigen.hpp");
     println!("cargo:rerun-if-changed=src/openmvg/eigen.cpp");
@@ -29,18 +30,18 @@ fn build_cxx() -> UnitResult {
         .file("src/openmvg/eigen.cpp")
         .include(&eigen_include_dir)
         .flag_if_supported("-std=c++14")
-        // Without this flag, I was getting random segfaults.
+        // Building for the wrong architecture can cause segfaults
         // See https://github.com/openMVG/openMVG/issues/1847
-        .flag_if_supported("-march=native")
+        .flag_if_supported("-mtune=generic")
         .compile("posenet_vr_eigen");
 
     cxx_build::bridge("src/openmvg/openmvg.rs")
         .file("src/openmvg/openmvg.cpp")
         .include(&eigen_include_dir)
         .flag_if_supported("-std=c++14")
-        // Without this flag, I was getting random segfaults.
+        // Building for the wrong architecture can cause segfaults
         // See https://github.com/openMVG/openMVG/issues/1847
-        .flag_if_supported("-march=native")
+        .flag_if_supported("-mtune=generic")
         .compile("posenet_vr_openmvg");
 
     // NOTE: `cargo test` fails if this comes before cxx_build::bridge.
@@ -62,9 +63,9 @@ fn build_vrpn() -> UnitResult {
     cxx_build::bridge("src/vrpn/vrpn.rs")
         .file("src/vrpn/vrpn.cpp")
         .flag_if_supported("-std=c++14")
-        // Without this flag, I was getting random segfaults.
+        // Building for the wrong architecture can cause segfaults
         // See https://github.com/openMVG/openMVG/issues/1847
-        .flag_if_supported("-march=native")
+        .flag_if_supported("-mtune=generic")
         .compile("posenet_vr_vrpn");
 
     println!("cargo:rustc-link-lib=vrpn");
