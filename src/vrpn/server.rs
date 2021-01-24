@@ -20,7 +20,7 @@ impl VrpnConfig {
 
 impl Default for VrpnConfig {
     fn default() -> Self {
-        VrpnConfig::new("PoseNet0", "[::1]", 3038).expect("Default VRPN configuration invalid!")
+        VrpnConfig::new("PoseNet0", "0.0.0.0", 3038).expect("Default VRPN configuration invalid!")
     }
 }
 

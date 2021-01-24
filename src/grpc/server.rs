@@ -100,7 +100,7 @@ impl GrpcConfig {
 
 impl Default for GrpcConfig {
     fn default() -> Self {
-        GrpcConfig::new("[::1]", 50051).expect("Default GRPC configuration invalid!")
+        GrpcConfig::new("0.0.0.0", 50051).expect("Default GRPC configuration invalid!")
     }
 }
 
