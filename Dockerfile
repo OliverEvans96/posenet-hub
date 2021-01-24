@@ -58,9 +58,9 @@ RUN cargo test --release
 
 # The final image only needs the compiled binaries
 FROM ubuntu
-COPY --from=build /usr/local/cargo/bin/hub-server /usr/local/bin/
-COPY --from=build /usr/local/cargo/bin/grpc-client /usr/local/bin/
-COPY --from=build /usr/local/cargo/bin/vrpn-client /usr/local/bin/
+COPY --from=build /usr/local/src/posenet-hub/target/release/hub-server /usr/local/bin/
+COPY --from=build /usr/local/src/posenet-hub/target/release/grpc-client /usr/local/bin/
+COPY --from=build /usr/local/src/posenet-hub/target/release/vrpn-client /usr/local/bin/
 RUN useradd -m posenet
 USER posenet
 WORKDIR /home/posenet
