@@ -58,6 +58,7 @@ RUN cargo test --release
 
 # The final image only needs the compiled binaries
 FROM ubuntu
+RUN apt-get update && apt-get install -y netbase
 COPY --from=build /usr/local/src/posenet-hub/target/release/hub-server /usr/local/bin/
 COPY --from=build /usr/local/src/posenet-hub/target/release/grpc-client /usr/local/bin/
 COPY --from=build /usr/local/src/posenet-hub/target/release/vrpn-client /usr/local/bin/
