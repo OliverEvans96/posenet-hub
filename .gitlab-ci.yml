@@ -1,0 +1,13 @@
+stages:
+  - build
+
+build-image:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+    - git submodule update --init --recursive
+      # Tag images with git commit SHAs
+    - /kaniko/executor --context $CI_PROJECT_DIR --destination $CI_REGISTRY_IMAGE:latest --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --build-arg SRC_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
