@@ -65,3 +65,7 @@ RUN useradd -m posenet
 USER posenet
 WORKDIR /home/posenet
 CMD posenet-hub
+# gRPC
+EXPOSE 50051
+# VRPN
+EXPOSE 3038
