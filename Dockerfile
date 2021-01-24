@@ -18,7 +18,7 @@ RUN cmake -DCMAKE_BUILD_TYPE=RELEASE \
           -DUSE_OPENMP=OFF \
           -DTARGET_ARCHITECTURE=generic \
           ../openMVG/src
-RUN make -j8
+RUN make -j$(nprocs)
 RUN make install
 
 # Install VRPN (VR peripheral device network)
@@ -30,7 +30,7 @@ WORKDIR /usr/local/src/vrpn_Build
 RUN cmake -DCMAKE_BUILD_TYPE=RELEASE \
           -DVRPN_USE_GPM_MOUSE=OFF \
           ../vrpn
-RUN make -j8
+RUN make -j$(nprocs)
 RUN make install
 
 # Install PoseNet Hub (this repo)
@@ -51,14 +51,16 @@ COPY include/ ./include
 COPY proto/ ./proto
 COPY src/ ./src
 COPY tests/ ./tests
-RUN cargo install --bin hub-server --path .
-
-# TODO: Don't do this here
+# Build the project
+RUN cargo build --release
+# Make sure everything is working
 RUN cargo test --release
 
-# Runtime container
+# The final image only needs the compiled binaries
 FROM ubuntu
 COPY --from=build /usr/local/cargo/bin/hub-server /usr/local/bin/
+COPY --from=build /usr/local/cargo/bin/grpc-client /usr/local/bin/
+COPY --from=build /usr/local/cargo/bin/vrpn-client /usr/local/bin/
 RUN useradd -m posenet
 USER posenet
 WORKDIR /home/posenet
