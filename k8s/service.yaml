@@ -1,0 +1,20 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: posenet-hub
+  namespace: posenet
+  labels:
+    app: posenet-hub
+spec:
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+      protocol: TCP
+    - name: vrpn
+      port: 3083
+      targetPort: 3038
+      protocol: TCP
+  selector:
+    app: posenet-hub
