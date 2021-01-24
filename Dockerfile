@@ -70,3 +70,4 @@ CMD hub-server
 EXPOSE 50051
 # VRPN
 EXPOSE 3038
+USER root
