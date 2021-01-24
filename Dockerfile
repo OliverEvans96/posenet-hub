@@ -64,7 +64,7 @@ COPY --from=build /usr/local/src/posenet-hub/target/release/vrpn-client /usr/loc
 RUN useradd -m posenet
 USER posenet
 WORKDIR /home/posenet
-CMD posenet-hub
+CMD hub-server
 # gRPC
 EXPOSE 50051
 # VRPN
