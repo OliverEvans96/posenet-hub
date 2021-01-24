@@ -64,3 +64,4 @@ COPY --from=build /usr/local/cargo/bin/vrpn-client /usr/local/bin/
 RUN useradd -m posenet
 USER posenet
 WORKDIR /home/posenet
+CMD posenet-hub
