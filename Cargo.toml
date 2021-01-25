@@ -11,14 +11,14 @@ edition = "2018"
 cxx = {git = "https://github.com/OliverEvans96/cxx.git"}
 nalgebra = "0.24"
 generic-array = "0.14"
-tonic = "0.3"
-prost = "0.6"
+tonic = "0.4"
+prost = "0.7"
 tokio = {version = "0.2", features=["macros", "time"]}
 futures = { version = "0.3", default-features = false, features = ["alloc"] }
 async-std = "1.9"
 rand = "0.8"
 
 [build-dependencies]
-tonic-build = "0.3"
+tonic-build = "0.4"
 cxx-build = "1.0"
 dotenv = "0.15"
