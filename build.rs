@@ -69,8 +69,6 @@ fn build_vrpn() -> UnitResult {
         .compile("posenet_vr_vrpn");
 
     println!("cargo:rustc-link-lib=vrpn");
-    // TODO: Might not need this after disabling tracker
-    println!("cargo:rustc-link-lib=quat");
 
     Ok(())
 }
