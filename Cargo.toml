@@ -8,12 +8,12 @@ edition = "2018"
 
 [dependencies]
 # cxx = "1.0"
-cxx = {git = "https://github.com/OliverEvans96/cxx.git"}
-nalgebra = "0.24"
+cxx = { git = "https://github.com/OliverEvans96/cxx.git" }
+nalgebra = { version = "0.26", features=["rand"] }
 generic-array = "0.14"
 tonic = "0.4"
 prost = "0.7"
-tokio = {version = "0.2", features=["macros", "time"]}
+tokio = { version = "1.5", features=["rt-multi-thread", "macros", "time"] }
 futures = { version = "0.3", default-features = false, features = ["alloc"] }
 async-std = "1.9"
 rand = "0.8"
