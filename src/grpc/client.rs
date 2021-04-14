@@ -3,7 +3,7 @@ use rand::{thread_rng, Rng};
 use std::error::Error;
 use tokio::{
     join,
-    time::{delay_for, Duration},
+    time::{sleep, Duration},
 };
 use tonic::{transport::Channel, Request};
 
@@ -128,7 +128,7 @@ pub async fn stream_inner(
 
         tx.try_send(pose_message)?;
 
-        delay_for(Duration::from_millis(500)).await;
+        sleep(Duration::from_millis(500)).await;
     }
 
     tx.close();
