@@ -1,16 +1,13 @@
 use std::fmt;
-use std::ops::Mul;
-
-use generic_array::ArrayLength;
 
 use cxx::{CxxVector, UniquePtr, UniquePtrTarget};
 use nalgebra::DimName;
-use nalgebra::{self, Matrix3x4, MatrixMN};
+use nalgebra::{self, Matrix3x4, OMatrix};
 use nalgebra::{Dynamic, U1, U2, U3, U4};
-use nalgebra::{MatrixSlice3x4, MatrixSliceMN, VectorSlice4};
+use nalgebra::{MatrixSlice, MatrixSlice3x4, VectorSlice4};
 
-pub type Matrix3xN<T> = MatrixMN<T, U3, Dynamic>;
-pub type Matrix2xN<T> = MatrixMN<T, U2, Dynamic>;
+pub type Matrix3xN<T> = OMatrix<T, U3, Dynamic>;
+pub type Matrix2xN<T> = OMatrix<T, U2, Dynamic>;
 
 #[cxx::bridge]
 pub mod ffi {
@@ -93,10 +90,8 @@ pub trait ToNalgebra<M, N>
 where
     M: DimName,
     N: DimName,
-    M::Value: Mul<N::Value>,
-    <M::Value as Mul<N::Value>>::Output: ArrayLength<f64>,
 {
-    fn to_nalgebra<'a>(&'a self) -> MatrixSliceMN<'a, f64, M, N>;
+    fn to_nalgebra<'a>(&'a self) -> MatrixSlice<'a, f64, M, N>;
 }
 
 impl ToNalgebra<U3, U4> for UniquePtr<ffi::Mat34> {

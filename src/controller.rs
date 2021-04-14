@@ -2,7 +2,7 @@ use async_std::channel;
 use nalgebra::{Matrix3x4, Point2, Point3, Rotation};
 use std::sync::{Arc, RwLock};
 use std::{collections::HashMap, error::Error, time::Duration};
-use tokio::{time::delay_for, try_join};
+use tokio::{time::sleep, try_join};
 
 use crate::grpc::proto::{CameraInfo, Pose3D};
 use crate::grpc::server::{LabeledPose2D, NamedCameraInfo};
@@ -112,7 +112,7 @@ impl Triangulator {
             }
 
             // This controls the VRPN update interval
-            delay_for(self.config.poll_interval).await;
+            sleep(self.config.poll_interval).await;
         }
     }
 

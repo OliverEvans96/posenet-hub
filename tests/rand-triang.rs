@@ -61,9 +61,9 @@ async fn multi_task() {
     let futures = (0u8..10).map(|_| {
         tokio::spawn(async {
             randomly_triangulate();
-            tokio::time::delay_for(Duration::from_millis(20)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
             randomly_triangulate();
-            tokio::time::delay_for(Duration::from_millis(20)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
         })
     });
     let result = future::try_join_all(futures).await;
