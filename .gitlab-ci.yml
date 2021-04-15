@@ -12,7 +12,7 @@ build-cpp-deps:
   script:
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
       # Tag images with git commit SHAs
-    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/cpp-deps.Dockerfile --destination $CI_REGISTRY_IMAGE/cpp-deps:latest --destination $CI_REGISTRY_IMAGE/cpp-deps:$CI_COMMIT_SHORT_SHA --build-arg SRC_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/cpp-deps.Dockerfile --destination $CI_REGISTRY_IMAGE/cpp-deps:latest --destination $CI_REGISTRY_IMAGE/cpp-deps:$CI_COMMIT_SHORT_SHA --build-arg CPP_DEPS_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
 
 build-rust-deps:
   stage: build
@@ -25,7 +25,7 @@ build-rust-deps:
   script:
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
       # Tag images with git commit SHAs
-    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/rust-deps.Dockerfile --destination $CI_REGISTRY_IMAGE/rust-deps:latest --destination $CI_REGISTRY_IMAGE/rust-deps:$CI_COMMIT_SHORT_SHA --build-arg SRC_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/rust-deps.Dockerfile --destination $CI_REGISTRY_IMAGE/rust-deps:latest --destination $CI_REGISTRY_IMAGE/rust-deps:$CI_COMMIT_SHORT_SHA --build-arg RUST_DEPS_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
 
 build-image:
   stage: build
