@@ -1,5 +1,8 @@
 FROM rust
 
+ARG CPP_DEPS_COMMIT
+RUN echo "CPP_DEPS_COMMIT=$CPP_DEPS_COMMIT"
+
 # Install build dependencies
 RUN apt-get update && apt-get install -y libeigen3-dev cmake
 

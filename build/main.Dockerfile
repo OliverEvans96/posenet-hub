@@ -1,5 +1,11 @@
 FROM gitlab-registry.nautilus.optiputer.net/librareome/posenet/posenet-hub/rust-deps AS build
 
+ARG SRC_COMMIT
+ENV SRC_COMMIT=$SRC_COMMIT
+RUN echo "CPP_DEPS_COMMIT=$CPP_DEPS_COMMIT"
+RUN echo "RUST_DEPS_COMMIT=$RUST_DEPS_COMMIT"
+RUN echo "SRC_COMMIT=$SRC_COMMIT"
+
 # Compile PoseNet Hub
 
 # Delete the phony lib
@@ -22,6 +28,7 @@ RUN apt-get update && apt-get install -y netbase
 COPY --from=build /usr/local/src/posenet-hub/target/release/hub-server /usr/local/bin/
 COPY --from=build /usr/local/src/posenet-hub/target/release/grpc-client /usr/local/bin/
 COPY --from=build /usr/local/src/posenet-hub/target/release/vrpn-client /usr/local/bin/
+COPY --from=build /etc/version-info /etc/
 
 # Final config
 RUN useradd -m posenet
