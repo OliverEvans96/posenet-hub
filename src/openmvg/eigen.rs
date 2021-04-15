@@ -1,6 +1,7 @@
 use std::fmt;
 
-use cxx::{CxxVector, UniquePtr, UniquePtrTarget};
+use cxx::memory::UniquePtrTarget;
+use cxx::{CxxVector, UniquePtr};
 use nalgebra::DimName;
 use nalgebra::{self, Matrix3x4, OMatrix};
 use nalgebra::{Dynamic, U1, U2, U3, U4};
