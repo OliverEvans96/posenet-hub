@@ -1,3 +1,3 @@
 [submodule "proto"]
 	path = proto
-	url = https://gitlab.com/posenet-vr/proto
+	url = https://gitlab.nautilus.optiputer.net/librareome/posenet/posenet-proto.git 
