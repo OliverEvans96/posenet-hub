@@ -26,6 +26,7 @@ mod ffi {
     }
 }
 
+/// Triangulate a single point across multiple cameras
 pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) -> Point3<f64> {
     assert_eq!(points2d.len(), camera_poses.len());
     let x2d_h_mat = Matrix3xN::<f64>::from_columns(
@@ -47,6 +48,7 @@ pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) ->
     return x3d;
 }
 
+/// Triangulate many points (a single pose) across many cameras
 pub fn triangulate_many<T>(
     points2d_slice: &[T],
     camera_poses: &[Matrix3x4<f64>],
