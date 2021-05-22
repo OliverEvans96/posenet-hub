@@ -9,24 +9,27 @@ use tonic::{transport::Channel, Request};
 
 use super::proto::hub_service_client::HubServiceClient;
 use super::proto::{CameraExtrinsics, CameraInfo};
-use super::proto::{EulerAngles, Point2D, Point3D, Pose2D, Pose2DMessage};
+use super::proto::{Point2D, Point3D, Pose2D, Pose2DMessage};
 
 pub async fn hello(client: &mut HubServiceClient<Channel>) -> Result<String, Box<dyn Error>> {
     let mut rng = thread_rng();
     let camera_info = CameraInfo {
         intrinsics: None,
         extrinsics: Some(CameraExtrinsics {
-            position: Some(Point3D {
-                x: rng.gen(),
-                y: rng.gen(),
-                z: rng.gen(),
-            }),
-            orientation: Some(EulerAngles {
-                yaw: rng.gen(),
-                pitch: rng.gen(),
-                roll: rng.gen(),
-            }),
+            view_matrix: vec![1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0]
+            // position: Some(Point3D {
+            //     x: rng.gen(),
+            //     y: rng.gen(),
+            //     z: rng.gen(),
+            // }),
+            // orientation: Some(EulerAngles {
+            //     yaw: rng.gen(),
+            //     pitch: rng.gen(),
+            //     roll: rng.gen(),
+            // }),
         }),
+        needs_intrinsic_calibration: false,
+        needs_extrinsic_calibration: false
     };
     println!("Camera Info: {:?}", camera_info);
 
@@ -46,71 +49,89 @@ pub fn random_pose() -> Pose2D {
         nose: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         left_eye: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         right_eye: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         left_ear: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         right_ear: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         left_shoulder: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         right_shoulder: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         left_elbow: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         right_elbow: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         left_wrist: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         right_wrist: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         left_hip: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         right_hip: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         left_knee: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         right_knee: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         left_ankle: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
         right_ankle: Some(Point2D {
             x: rng.gen(),
             y: rng.gen(),
+            score: 1.0
         }),
+        score: 1.0
     }
 }
 
@@ -123,7 +144,7 @@ pub async fn stream_inner(
         println!("Sending pose {}", i);
         let pose_message = Pose2DMessage {
             camera_name: name.clone(),
-            pose: Some(random_pose()),
+            poses: vec![random_pose()],
         };
 
         tx.try_send(pose_message)?;

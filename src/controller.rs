@@ -134,12 +134,14 @@ impl Triangulator {
         let hm = self.cameras_hm.read().expect("cameras_hm lock poisoned!");
         let camera = hm.get(name)?;
         let extrinsics = camera.extrinsics.as_ref()?;
-        let euler_angles = extrinsics.orientation.as_ref()?;
-        let rotation =
-            Rotation::from_euler_angles(euler_angles.roll, euler_angles.pitch, euler_angles.yaw);
-        let position = extrinsics.position.as_ref()?;
-        let center = Point3::new(position.x, position.y, position.z);
-        let p = create_camera_matrix(center, rotation);
+        // let euler_angles = extrinsics.orientation.as_ref()?;
+        // let rotation =
+            // Rotation::from_euler_angles(euler_angles.roll, euler_angles.pitch, euler_angles.yaw);
+        // let position = extrinsics.position.as_ref()?;
+        // let center = Point3::new(position.x, position.y, position.z);
+        // let p = create_camera_matrix(center, rotation);
+        let m = &extrinsics.view_matrix;
+        let p = Matrix3x4::new(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);
 
         Some(p)
     }

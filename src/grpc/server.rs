@@ -64,11 +64,11 @@ impl HubService for HubServer {
 
         while let Some(message) = stream.next().await {
             let message = message?;
-            if let Some(pose) = message.pose {
+            if let Some(pose) = message.poses.clone().into_iter().nth(0) {
                 let labeled = LabeledPose2D {
                     name: message.camera_name.clone(),
                     time: Instant::now(),
-                    pose,
+                    pose
                 };
                 self.poses2d_tx
                     .send(labeled)

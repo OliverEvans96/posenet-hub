@@ -12,7 +12,7 @@ const NUM_CHANNELS: usize = NDIM * NUM_KEYPOINTS;
 
 impl From<nalgebra::Point2<f64>> for Point2D {
     fn from(p: nalgebra::Point2<f64>) -> Self {
-        Self { x: p.x, y: p.y }
+        Self { x: p.x, y: p.y, score: 1.0 }
     }
 }
 
@@ -61,6 +61,7 @@ impl From<Vec<nalgebra::Point2<f64>>> for Pose2D {
             right_knee: Some(v[14].into()),
             left_ankle: Some(v[15].into()),
             right_ankle: Some(v[16].into()),
+            score: 1.0
         }
     }
 }
