@@ -1,5 +1,5 @@
 use async_std::channel;
-use nalgebra::{Matrix3x4, Point2, Point3, Rotation};
+use nalgebra::{Matrix3x4, Matrix3, Point2, Point3, Rotation};
 use std::sync::{Arc, RwLock};
 use std::{collections::HashMap, error::Error, time::Duration};
 use tokio::{time::sleep, try_join};
@@ -20,8 +20,8 @@ pub struct ControllerConfig {
 impl Default for ControllerConfig {
     fn default() -> Self {
         Self {
-            pose_expiration: Duration::from_millis(500),
-            poll_interval: Duration::from_millis(500),
+            pose_expiration: Duration::from_millis(50),
+            poll_interval: Duration::from_millis(50),
             min_cameras: 2,
         }
     }
@@ -133,16 +133,16 @@ impl Triangulator {
     fn get_camera_matrix(&self, name: &str) -> Option<Matrix3x4<f64>> {
         let hm = self.cameras_hm.read().expect("cameras_hm lock poisoned!");
         let camera = hm.get(name)?;
+        let intrinsics = camera.intrinsics.as_ref()?;
         let extrinsics = camera.extrinsics.as_ref()?;
-        // let euler_angles = extrinsics.orientation.as_ref()?;
-        // let rotation =
-            // Rotation::from_euler_angles(euler_angles.roll, euler_angles.pitch, euler_angles.yaw);
-        // let position = extrinsics.position.as_ref()?;
-        // let center = Point3::new(position.x, position.y, position.z);
-        // let p = create_camera_matrix(center, rotation);
-        let m = &extrinsics.view_matrix;
-        let p = Matrix3x4::new(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);
 
+        let c = &intrinsics.camera_matrix;
+        let k = Matrix3::new(c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8]);
+
+        let v = &extrinsics.view_matrix;
+        let rt = Matrix3x4::new(v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10],v[11]);
+
+        let p = k * rt;
         Some(p)
     }
 
