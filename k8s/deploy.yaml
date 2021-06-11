@@ -8,6 +8,9 @@ metadata:
     app: posenet-hub
 spec:
   replicas: 1
+  selector:
+    matchLabels:
+      app: posenet-hub
   strategy:
     type: Recreate
   template:
