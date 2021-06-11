@@ -16,5 +16,7 @@ spec:
       port: 3083
       targetPort: 3038
       protocol: TCP
+  type: LoadBalancer
+#  loadBalancerIP: 67.58.49.50
   selector:
     app: posenet-hub
