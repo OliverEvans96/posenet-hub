@@ -25,3 +25,10 @@ spec:
           ports:
             - containerPort: 50051
             - containerPort: 3083
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: "1"
+          requests:
+            memory: 1Gi
+            cpu: "1"
