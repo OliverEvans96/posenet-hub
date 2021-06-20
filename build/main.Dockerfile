@@ -37,5 +37,6 @@ WORKDIR /home/posenet
 CMD hub-server
 # gRPC
 EXPOSE 50051
-# VRPN
-EXPOSE 3038
+# VRPN in tcp mode only
+EXPOSE 3883/tcp
+# EXPOSE 3883/udp

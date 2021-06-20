@@ -20,7 +20,7 @@ impl VrpnConfig {
 
 impl Default for VrpnConfig {
     fn default() -> Self {
-        VrpnConfig::new("PoseNet0", "0.0.0.0", 3038).expect("Default VRPN configuration invalid!")
+        VrpnConfig::new("PoseNet0", "0.0.0.0", 3883).expect("Default VRPN configuration invalid!")
     }
 }
 
@@ -37,7 +37,8 @@ impl VrpnServer {
     pub async fn run(&self) -> Result<(), Box<dyn Error>> {
         println!("PoseNet Hub VRPN service listening on {}", self.config.addr);
 
-        let mut server = ffi::create_server(&self.config.device_name);
+        // TODO use config addr in create_server..
+        let mut server = ffi::create_server(&self.config.device_name); 
         loop {
             // Check for new pose from controller
             let message = self.poses3d_rx.recv().await?;

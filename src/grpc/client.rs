@@ -8,25 +8,19 @@ use tokio::{
 use tonic::{transport::Channel, Request};
 
 use super::proto::hub_service_client::HubServiceClient;
-use super::proto::{CameraExtrinsics, CameraInfo};
+use super::proto::{CameraExtrinsics, CameraIntrinsics, CameraInfo};
 use super::proto::{Point2D, Point3D, Pose2D, Pose2DMessage};
 
 pub async fn hello(client: &mut HubServiceClient<Channel>) -> Result<String, Box<dyn Error>> {
     let mut rng = thread_rng();
     let camera_info = CameraInfo {
-        intrinsics: None,
+        intrinsics: Some(CameraIntrinsics {
+            camera_matrix: vec![1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0],
+            distortion: vec![0.0,0.0,0.0,0.0,0.0],
+            rms_error: 0.0
+        }),
         extrinsics: Some(CameraExtrinsics {
             view_matrix: vec![1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0]
-            // position: Some(Point3D {
-            //     x: rng.gen(),
-            //     y: rng.gen(),
-            //     z: rng.gen(),
-            // }),
-            // orientation: Some(EulerAngles {
-            //     yaw: rng.gen(),
-            //     pitch: rng.gen(),
-            //     roll: rng.gen(),
-            // }),
         }),
         needs_intrinsic_calibration: false,
         needs_extrinsic_calibration: false
@@ -139,7 +133,7 @@ pub async fn stream_inner(
     name: String,
     tx: async_std::channel::Sender<Pose2DMessage>,
 ) -> Result<(), Box<dyn Error>> {
-    let nposes: u32 = 15;
+    let nposes: u32 = 1000;
     for i in 0..nposes {
         println!("Sending pose {}", i);
         let pose_message = Pose2DMessage {
@@ -149,7 +143,7 @@ pub async fn stream_inner(
 
         tx.try_send(pose_message)?;
 
-        sleep(Duration::from_millis(500)).await;
+        sleep(Duration::from_millis(50)).await;
     }
 
     tx.close();
