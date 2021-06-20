@@ -15,29 +15,9 @@ spec:
       targetPort: 50051
       protocol: TCP
     - name: vrpn
-      port: 3083
-      targetPort: 3038
+      port: 3883
+      targetPort: 3883
       protocol: TCP
-  type: LoadBalancer
-#  loadBalancerIP: 67.58.49.50
-  selector:
-    app: posenet-hub
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: posenet-hub-udp
-  namespace: posenet
-  labels:
-    app: posenet-hub
-  annotations:
-    metallb.universe.tf/allow-shared-ip: "posenet-hub"
-spec:
-  ports:
-    - name: vrpn
-      port: 3083
-      targetPort: 3038
-      protocol: UDP
   type: LoadBalancer
 #  loadBalancerIP: 67.58.49.50
   selector:
