@@ -15,12 +15,12 @@ pub async fn hello(client: &mut HubServiceClient<Channel>) -> Result<String, Box
     let mut rng = thread_rng();
     let camera_info = CameraInfo {
         intrinsics: Some(CameraIntrinsics {
-            camera_matrix: vec![1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0],
+            camera_matrix: vec![100.0,0.0,0.0,0.0,100.0,0.0,0.0,0.0,100.0],
             distortion: vec![0.0,0.0,0.0,0.0,0.0],
             rms_error: 0.0
         }),
         extrinsics: Some(CameraExtrinsics {
-            view_matrix: vec![1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0]
+            view_matrix: vec![1.0,0.0,0.0,rng.gen(),0.0,1.0,0.0,rng.gen(),0.0,0.0,1.0,rng.gen()]
         }),
         needs_intrinsic_calibration: false,
         needs_extrinsic_calibration: false

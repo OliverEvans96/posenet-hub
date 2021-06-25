@@ -20,8 +20,8 @@ pub struct ControllerConfig {
 impl Default for ControllerConfig {
     fn default() -> Self {
         Self {
-            pose_expiration: Duration::from_millis(50),
-            poll_interval: Duration::from_millis(50),
+            pose_expiration: Duration::from_millis(100),
+            poll_interval: Duration::from_millis(16),
             min_cameras: 2,
         }
     }
