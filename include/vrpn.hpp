@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <random>
+#include <map>
 
 #include "posenet-vr-hub/src/vrpn/vrpn.rs.h"
 
@@ -33,21 +34,24 @@ class PoseNetVrpnServer : public vrpn_Analog {
 
 class PoseNetVrpnContainer {
    public:
-    PoseNetVrpnContainer(std::unique_ptr<PoseNetVrpnServer> _server,
+    PoseNetVrpnContainer(//std::unique_ptr<PoseNetVrpnServer> _server,
                          std::shared_ptr<vrpn_Connection_IP> _connection) {
-        server = move(_server);
+        // server = move(_server);
         connection = move(_connection);
     };
-    std::unique_ptr<PoseNetVrpnServer> server;
+    // std::unique_ptr<PoseNetVrpnServer> server;
+    std::map<std::string, std::unique_ptr<PoseNetVrpnServer>> servers;
     std::shared_ptr<vrpn_Connection_IP> connection;
 };
 
 /**************** Rust FFI Functions *****************/
 
 // Server
-std::unique_ptr<PoseNetVrpnContainer> create_server(rust::Str device_name);
+std::unique_ptr<PoseNetVrpnContainer> create_container();
+// std::unique_ptr<PoseNetVrpnContainer> create_server(rust::Str device_name);
 
 void update_values(std::unique_ptr<PoseNetVrpnContainer>& container,
+                   rust::Str device_name,
                    rust::Slice<const double> values);
 
 void mainloop(std::unique_ptr<PoseNetVrpnContainer>& container);

@@ -49,25 +49,41 @@ void PoseNetVrpnServer::mainloop() {
 
 /**************** Rust FFI Functions *****************/
 
-unique_ptr<PoseNetVrpnContainer> create_server(rust::Str device_name) {
-    string device_name_str(device_name.data(), device_name.size());
+// unique_ptr<PoseNetVrpnContainer> create_server(rust::Str device_name) {
+//     string device_name_str(device_name.data(), device_name.size());
+//     auto connection = make_shared<vrpn_Connection_IP>();
+//     auto server =
+//         make_unique<PoseNetVrpnServer>(device_name_str.data(), connection);
+//     auto container =
+//         make_unique<PoseNetVrpnContainer>(move(server), move(connection));
+//     printf("VRPN server with device '%s' started.\n", device_name_str.data());
+//     return container;
+// }
+unique_ptr<PoseNetVrpnContainer> create_container() {
     auto connection = make_shared<vrpn_Connection_IP>();
-    auto server =
-        make_unique<PoseNetVrpnServer>(device_name_str.data(), connection);
-    auto container =
-        make_unique<PoseNetVrpnContainer>(move(server), move(connection));
-    printf("VRPN server with device '%s' started.\n", device_name_str.data());
+    auto container = make_unique<PoseNetVrpnContainer>(move(connection));
     return container;
 }
 
 void update_values(unique_ptr<PoseNetVrpnContainer> &container,
+                   rust::Str device_name,
                    rust::Slice<const double> values) {
-    container->server->update_values(values);
+    string name(device_name.data(), device_name.size());
+    if(container->servers.count(name) == 0){
+        auto server = make_unique<PoseNetVrpnServer>(name.data(), container->connection);
+        container->servers[name] = move(server);
+        printf("VRPN analog device started --> %s\n", name.data());
+    }
+    container->servers[name]->update_values(values);
+    // container->server->update_values(values);
 }
 
 void mainloop(unique_ptr<PoseNetVrpnContainer> &container) {
     // Update Server
-    container->server->mainloop();
+    // container->server->mainloop();
+    for (const auto& kv : container->servers)
+        kv.second->mainloop();
+
     // Update Connection
     container->connection->mainloop();
 }
