@@ -13,8 +13,8 @@
 
 // PoseNet returns 17 points on the body
 const uint32_t NUM_KEYPOINTS = 17;
-// (x,y,z) for 16 keypoints
-const uint32_t NUM_CHANNELS = 3 * NUM_KEYPOINTS;
+// (x,y,z,score) for 17 keypoints + pose score
+const uint32_t NUM_CHANNELS = 4 * NUM_KEYPOINTS + 1;
 
 /***************** PoseNetVRPNServer ******************/
 class PoseNetVrpnServer : public vrpn_Analog {

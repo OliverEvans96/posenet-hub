@@ -4,45 +4,53 @@ use crate::utils::pop_n;
 
 // PoseNet returns 17 points on the body
 const NUM_KEYPOINTS: usize = 17;
-const NDIM: usize = 3;
-// (x,y,z) for 16 keypoints
-const NUM_CHANNELS: usize = NDIM * NUM_KEYPOINTS;
+const NDIM: usize = 4;
+// (x,y,z, score) for 17 keypoints + pose score
+const NUM_CHANNELS: usize = NDIM * NUM_KEYPOINTS + 1;
+
+// type aliases for scored nalgebra tuples
+pub type SPoint2 = (nalgebra::Point2<f64>, f64);
+pub type SPoint3 = (nalgebra::Point3<f64>, f64);
 
 // Convert between gRPC Point and nalgebra::Point
 
-impl From<nalgebra::Point2<f64>> for Point2D {
-    fn from(p: nalgebra::Point2<f64>) -> Self {
-        Self { x: p.x, y: p.y, score: 1.0 }
+impl From<SPoint2> for Point2D {
+    fn from(t: SPoint2) -> Self {
+        let (p,s) = t;
+        Self { x: p.x, y: p.y, score: s }
     }
 }
 
-impl From<Point2D> for nalgebra::Point2<f64> {
+impl From<Point2D> for SPoint2 {
     fn from(p: Point2D) -> Self {
-        Self::new(p.x, p.y)
+        (nalgebra::Point2::new(p.x, p.y), p.score)
     }
 }
 
-impl From<nalgebra::Point3<f64>> for Point3D {
-    fn from(p: nalgebra::Point3<f64>) -> Self {
+impl From<SPoint3> for Point3D {
+    fn from(t: SPoint3) -> Self {
+        let (p,s) = t;
         Self {
             x: p.x,
             y: p.y,
             z: p.z,
+            score: s
         }
     }
 }
 
-impl From<Point3D> for nalgebra::Point3<f64> {
+impl From<Point3D> for SPoint3 {
     fn from(p: Point3D) -> Self {
-        Self::new(p.x, p.y, p.z)
+        (nalgebra::Point3::new(p.x, p.y, p.z), p.score)
     }
 }
 
-// Convert between gRPC Pose and Vec<nalgebra::Point>
+// Convert between gRPC Pose and (Vec<nalgebra::Point>, f64)
 
-impl From<Vec<nalgebra::Point2<f64>>> for Pose2D {
-    fn from(v: Vec<nalgebra::Point2<f64>>) -> Self {
+impl From<(Vec<SPoint2>, f64)> for Pose2D {
+    fn from(t: (Vec<SPoint2>, f64)) -> Self {
         // TODO: Allow missing points
+        let (v,s) = t;
         Self {
             nose: Some(v[0].into()),
             left_eye: Some(v[1].into()),
@@ -61,14 +69,15 @@ impl From<Vec<nalgebra::Point2<f64>>> for Pose2D {
             right_knee: Some(v[14].into()),
             left_ankle: Some(v[15].into()),
             right_ankle: Some(v[16].into()),
-            score: 1.0
+            score: s
         }
     }
 }
 
-impl From<Vec<nalgebra::Point3<f64>>> for Pose3D {
-    fn from(v: Vec<nalgebra::Point3<f64>>) -> Self {
+impl From<(Vec<SPoint3>, f64)> for Pose3D {
+    fn from(t: (Vec<SPoint3>, f64)) -> Self {
         // TODO: Allow missing points
+        let (v,s) = t;
         Self {
             nose: Some(v[0].into()),
             left_eye: Some(v[1].into()),
@@ -87,16 +96,16 @@ impl From<Vec<nalgebra::Point3<f64>>> for Pose3D {
             right_knee: Some(v[14].into()),
             left_ankle: Some(v[15].into()),
             right_ankle: Some(v[16].into()),
+            score: s
         }
     }
 }
 
 // 3D
-
-impl From<Pose2D> for Vec<nalgebra::Point2<f64>> {
+impl From<Pose2D> for (Vec<SPoint2>, f64) {
     fn from(pose: Pose2D) -> Self {
         // TODO: Allow missing points
-        vec![
+        (vec![
             pose.nose.unwrap().into(),
             pose.left_eye.unwrap().into(),
             pose.right_eye.unwrap().into(),
@@ -114,14 +123,15 @@ impl From<Pose2D> for Vec<nalgebra::Point2<f64>> {
             pose.right_knee.unwrap().into(),
             pose.left_ankle.unwrap().into(),
             pose.right_ankle.unwrap().into(),
-        ]
+        ],
+        pose.score)
     }
 }
 
-impl From<Pose3D> for Vec<nalgebra::Point3<f64>> {
+impl From<Pose3D> for (Vec<SPoint3>, f64) {
     fn from(pose: Pose3D) -> Self {
         // TODO: Allow missing points
-        vec![
+        (vec![
             pose.nose.unwrap().into(),
             pose.left_eye.unwrap().into(),
             pose.right_eye.unwrap().into(),
@@ -139,7 +149,8 @@ impl From<Pose3D> for Vec<nalgebra::Point3<f64>> {
             pose.right_knee.unwrap().into(),
             pose.left_ankle.unwrap().into(),
             pose.right_ankle.unwrap().into(),
-        ]
+        ],
+        pose.score)
     }
 }
 
@@ -150,7 +161,7 @@ impl IntoIterator for Point3D {
     type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
-        vec![self.x, self.y, self.z].into_iter()
+        vec![self.x, self.y, self.z, self.score].into_iter()
     }
 }
 
@@ -160,6 +171,7 @@ impl From<Vec<f64>> for Point3D {
             x: v[0],
             y: v[1],
             z: v[2],
+            score: v[3]
         }
     }
 }
@@ -184,6 +196,7 @@ impl From<Pose3D> for Vec<f64> {
         values.extend(pose.right_knee.unwrap());
         values.extend(pose.left_ankle.unwrap());
         values.extend(pose.right_ankle.unwrap());
+        values.extend(vec![pose.score]);
         assert_eq!(values.len(), NUM_CHANNELS);
 
         values
@@ -210,6 +223,7 @@ impl From<Vec<f64>> for Pose3D {
             right_knee: Some(pop_n(&mut values, NDIM).into()),
             left_ankle: Some(pop_n(&mut values, NDIM).into()),
             right_ankle: Some(pop_n(&mut values, NDIM).into()),
+            score: values.pop().unwrap()
         }
     }
 }
