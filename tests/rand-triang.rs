@@ -6,16 +6,12 @@ use std::time::{Duration, Instant};
 use posenet_vr_hub::triangulator::triangulate_from_poses_and_camera_matrices;
 use posenet_vr_hub::grpc::client::random_pose;
 use posenet_vr_hub::grpc::server::LabeledPoses2D;
+use posenet_vr_hub::grpc::proto::Pose3D;
 
-fn randomly_triangulate() -> Vec<Point3<f64>> {
+fn randomly_triangulate() -> Pose3D {
     let num_cameras = 5;
     let poses = (0..num_cameras)
-        .map(|_| LabeledPoses2D {
-            group_name: "random".to_owned(),
-            camera_name: "random".to_owned(),
-            time: Instant::now(),
-            poses: vec![random_pose()],
-        })
+        .map(|_| random_pose())
         .collect();
     let camera_matrices = (0..num_cameras).map(|_| Matrix3x4::new_random()).collect();
     return triangulate_from_poses_and_camera_matrices(poses, camera_matrices);
