@@ -35,4 +35,4 @@ This is a first draft. There are a lot of improvements that will be needed. Incl
 - Support multiple poses, will need a way to correlate poses across different cameras
 - Consider [camera intrinsics](https://en.wikipedia.org/wiki/Camera_resectioning#Intrinsic_parameters) (focal length, image sensor format, and principal point, and radial distortion?)
 - Determine/adjust camera position/orientation automatically.
-- Perform [bundle adjustment(https://openmvg.readthedocs.io/en/latest/openMVG/sfm/sfm/#non-linear-refinement-bundle-adjustment) to get accurate camera matrices & 3d points.
+- Perform [bundle adjustment](https://openmvg.readthedocs.io/en/latest/openMVG/sfm/sfm/#non-linear-refinement-bundle-adjustment) to get accurate camera matrices & 3d points.
