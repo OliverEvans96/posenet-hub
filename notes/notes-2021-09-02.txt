@@ -1,0 +1,15 @@
+Talk w/ John & Timothy
+
+
+Have real-time 3D points in unreal
+
+TODO:
+- Reproject 3d points onto 2d camera streams
+- Draw 3D axes
+- Label points
+- Draw sticks between points
+- Bundle adjustment
+- Error bars / boxes / spheres on points
+- John's crazy ideas:
+  - Add limb-length constraints during 3d reconstruction
+  - Deform error spheres to show actual joint range of motion for gait analysis
