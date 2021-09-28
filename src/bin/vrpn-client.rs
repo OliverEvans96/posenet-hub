@@ -15,7 +15,7 @@ struct VrpnClientCommand {
 
     /// VRPN port
     #[structopt(short, long, default_value = "3883")]
-    port: u8,
+    port: u16,
 
     /// VRPN device name
     #[structopt(short, long, default_value = "grpc_client.pose0")]
