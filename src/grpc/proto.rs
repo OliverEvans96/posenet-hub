@@ -313,15 +313,16 @@ impl Distribution<Pose3D> for Standard {
 
 impl Distribution<ImageData> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> ImageData {
-        let width: usize = 10;
+        let width: usize = 30;
         let height: usize = 10;
         let num_pixels = width * height;
+        // Three channels: (R, G, B) for each pixel
+        let num_bytes = 3 * num_pixels;
 
         ImageData {
             width: width.try_into().unwrap(),
             height: height.try_into().unwrap(),
-            // data: rng.sample_iter(Standard).take(num_pixels).collect(),
-            data: (0..num_pixels).map(|_| rng.gen()).collect(),
+            data: (0..num_bytes).map(|_| rng.gen()).collect(),
         }
     }
 }

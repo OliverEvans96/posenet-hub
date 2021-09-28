@@ -13,7 +13,8 @@ use tonic::{transport::Channel, Request};
 use super::proto::hub_service_client::HubServiceClient;
 use super::proto::{CameraExtrinsics, CameraInfo, CameraIntrinsics};
 use super::proto::{
-    CameraSnapshotRequest, CameraSnapshotResponse, ServerSnapshotRequest, SnapshotClientOffer,
+    CameraSnapshotRequest, CameraSnapshotResponse, ServerSnapshotRequest, ServerSnapshotResponse,
+    SnapshotClientOffer,
 };
 use super::proto::{Pose2DImageMessage, Pose2DMessage};
 
@@ -186,8 +187,8 @@ pub async fn offer_snapshots(
 pub async fn get_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
-) -> Result<Vec<Pose2DImageMessage>, Box<dyn Error>> {
+) -> Result<ServerSnapshotResponse, Box<dyn Error>> {
     let request = ServerSnapshotRequest { group_name };
     let response = client.get_snapshots(request).await?.into_inner();
-    Ok(response.messages)
+    Ok(response)
 }

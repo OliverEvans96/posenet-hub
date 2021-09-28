@@ -1,5 +1,6 @@
 use std::error::Error;
-use std::path;
+use std::fs;
+use std::path::PathBuf;
 use structopt::StructOpt;
 
 use posenet_vr_hub::grpc::client as grpc_client;
@@ -74,6 +75,14 @@ enum GrpcClientCommand {
         /// Camera group to request snapshots from
         #[structopt(short, long)]
         group: String,
+
+        /// Base directory where new output directory should be created
+        /// with returned images and data. Will be created if not present.
+        /// Parent direcories will not be created (as in mkdir -p).
+        #[structopt(short, long, default_value = "snapshots")]
+        #[structopt(parse(from_os_str))]
+        output: PathBuf,
+
         #[structopt(flatten)]
         common: CommonOpts,
     },
@@ -123,10 +132,53 @@ async fn offer_snapshots(
 async fn get_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
+    output_path: PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     log::info!("Getting snapshots");
-    let snapshots = grpc_client::get_snapshots(client, group_name).await?;
-    log::info!("Got snapshots: {:#?}", snapshots);
+    // TODO: Stream snapshots instead?
+    let snapshots_response = grpc_client::get_snapshots(client, group_name).await?;
+    log::info!("Got {} snapshots.", snapshots_response.messages.len());
+
+    // TODO: Reconstruct 3D poses also?
+
+    // Create base directory if it doesn't exist
+    if !output_path.exists() {
+        fs::create_dir(&output_path)?;
+    }
+
+    // Create directory for this snapshot
+    // throws an error if it already exists,
+    // which shouldn't happen because snapshot_ids
+    // are randomly generated UUIDs
+    let snapshot_dir_path = output_path.join(snapshots_response.snapshot_id);
+    fs::create_dir(&snapshot_dir_path)?;
+
+    // Loop over snapshots
+    for message in snapshots_response.messages {
+        // Get image data from snapshot message
+        if let Some(img) = message.image {
+            if let Some(image_buf) = image::ImageBuffer::<image::Rgb<_>, _>::from_raw(img.width, img.height, img.data) {
+                let image_filename = format!("{}.jpg", message.camera_name);
+                let image_path = snapshot_dir_path.join(image_filename);
+
+                // Write image data to file
+                image_buf.save(image_path)?;
+            } else {
+              log::error!("Couldn't construct image buffer - too much data");
+            }
+        } else {
+          log::warn!("Snapshot contained no image!");
+        }
+
+        // Write pose data to file
+        let pose_filename = format!("{}.yaml", message.camera_name);
+        let pose_path = snapshot_dir_path.join(pose_filename);
+        // TODO: Maybe don't need to exit completely if one of these fails? 
+        // could handle errors more gracefully
+        let pose_file = fs::File::create(pose_path)?;
+        serde_yaml::to_writer(pose_file, &message.poses)?;
+
+    }
 
     Ok(())
 }
@@ -149,7 +201,9 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
                 offer_snapshots(&mut client, camera.group).await?
             }
         },
-        GrpcClientCommand::GetSnapshots { group, .. } => get_snapshots(&mut client, group).await?,
+        GrpcClientCommand::GetSnapshots { group, output, .. } => {
+            get_snapshots(&mut client, group, output).await?
+        }
     };
 
     log::info!("Done");
