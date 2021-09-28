@@ -1,7 +1,8 @@
 use async_std;
+use std::time::SystemTime;
 use rand::{thread_rng, Rng};
-use rand::distributions::Alphanumeric;
-use std::iter;
+use rand::distributions::{Alphanumeric};
+use rand::prelude::ThreadRng;
 use std::error::Error;
 use tokio::{
     join,
@@ -11,7 +12,8 @@ use tonic::{transport::Channel, Request};
 
 use super::proto::hub_service_client::HubServiceClient;
 use super::proto::{CameraExtrinsics, CameraIntrinsics, CameraInfo};
-use super::proto::{Point2D, Pose2D, Pose2DMessage};
+use super::proto::{SnapshotClientOffer, CameraSnapshotResponse};
+use super::proto::{Point2D, Pose2D, Pose2DMessage, ImageData, Pose2DImageMessage};
 
 pub async fn hello(client: &mut HubServiceClient<Channel>, group_name: &str) -> Result<String, Box<dyn Error>> {
     let mut rng = thread_rng();
@@ -79,15 +81,72 @@ pub async fn stream_poses(
     group_name: &str,
     camera_name: &str
 ) -> Result<(), Box<dyn Error>> {
+    let mut rng = thread_rng();
     let buf_size = 10;
     let (tx, rx) = async_std::channel::bounded::<Pose2DMessage>(buf_size);
     let request = Request::new(rx);
     println!("Sending request");
     let response_future = client.stream_poses(request);
-    let stream_future = stream_inner(group_name, camera_name, tx);
+    let stream_future = stream_inner(group_name, camera_name, tx, &mut rng);
     let (stream_result, response_result) = join!(stream_future, response_future);
     stream_result?;
     println!("Got response: {:#?}", response_result?);
 
     Ok(())
+}
+
+pub async fn wait_for_snapshot_request(
+    client: &mut HubServiceClient<Channel>, 
+    group_name: String
+) -> Result<(), Box<dyn Error>> {
+    let mut rng = thread_rng();
+    let camera_name = generate_name();
+
+    // Construct offer
+    let offer = SnapshotClientOffer {
+        group_name: group_name.clone(),
+        camera_name: camera_name.clone()
+    };
+
+    // Send offer and get stream handle from server
+    let mut stream = client.wait_for_snapshot_request(Request::new(offer)).await?.into_inner();
+
+    // Iterate over snapshot requests
+    while let Some(snapshot_request) = stream.message().await? {
+        // TODO: Use server timestamp somehow?
+
+        // Construct response
+        let image_message = Pose2DImageMessage {
+            // Need to clone strings each time we loop
+            group_name: group_name.clone(),
+            camera_name: camera_name.clone(),
+            poses: vec![rng.gen()],
+            image: Some(rng.gen()),
+            timestamp: Some(SystemTime::now().into()),
+        };
+
+        let snapshot_response = CameraSnapshotResponse {
+            snapshot_id: snapshot_request.snapshot_id,
+            message: Some(image_message),
+        };
+
+        // Send snapshot to server
+        client.send_snapshot(Request::new(snapshot_response)).await?;
+    }
+
+    Ok(())
+}
+
+
+
+pub mod tests {
+    #[test]
+    fn test_random_image() {
+        use rand::{thread_rng,Rng};
+        use super::ImageData;
+
+        let mut rng = thread_rng();
+        let image: ImageData = rng.gen();
+        println!("{:?}", image);
+    }
 }

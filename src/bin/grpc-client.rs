@@ -21,6 +21,8 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port = matches.value_of("port").unwrap_or("50051");
     let group = matches.value_of("group").unwrap_or("grpc_client");
 
+    // TODO: subcommands for streaming vs snapshot?
+
     let addr = format!("http://{}:{}", server, port);
     println!("Connecting");
     let mut client = HubServiceClient::connect(addr).await?;
