@@ -1,13 +1,17 @@
+use std::error::Error;
+use std::path;
 use structopt::StructOpt;
 
 use posenet_vr_hub::grpc::client as grpc_client;
 use posenet_vr_hub::grpc::proto::hub_service_client::HubServiceClient;
+use tonic::transport::Channel;
 
 #[derive(Debug, StructOpt)]
 struct CommonOpts {
     /// gRPC Port
     #[structopt(short, long, default_value = "50051")]
     port: u16,
+
     /// Server address
     #[structopt(short, long, default_value = "localhost")]
     server: String,
@@ -26,13 +30,16 @@ enum CameraCommand {
     StreamPoses {
         #[structopt(flatten)]
         camera: CameraOpts,
+
         #[structopt(flatten)]
         common: CommonOpts,
     },
+
     /// Stand by and offer to take snapshots at the server's request
     OfferSnapshots {
         #[structopt(flatten)]
         camera: CameraOpts,
+
         #[structopt(flatten)]
         common: CommonOpts,
     },
@@ -82,36 +89,67 @@ impl GrpcClientCommand {
     }
 }
 
+async fn connect(server: &str, port: u16) -> Result<HubServiceClient<Channel>, Box<dyn Error>> {
+    let addr = format!("http://{}:{}", server, port);
+    log::info!("Connecting to server at '{}'", addr);
+    let client_result = HubServiceClient::connect(addr).await?;
+    log::info!("Connected successfully");
+
+    Ok(client_result)
+}
+
+async fn stream_poses(
+    client: &mut HubServiceClient<Channel>,
+    group_name: String,
+) -> Result<(), Box<dyn Error>> {
+    log::info!("Sending hello");
+    let name = grpc_client::hello(client, group_name.clone()).await?;
+    log::info!("Streaming poses");
+    grpc_client::stream_poses(client, group_name, name).await?;
+
+    Ok(())
+}
+
+async fn offer_snapshots(
+    client: &mut HubServiceClient<Channel>,
+    group_name: String,
+) -> Result<(), Box<dyn Error>> {
+    log::info!("Waiting for snapshot request in group '{}'", &group_name);
+    grpc_client::offer_snapshots(client, group_name).await?;
+
+    Ok(())
+}
+
+async fn get_snapshots(
+    client: &mut HubServiceClient<Channel>,
+    group_name: String,
+) -> Result<(), Box<dyn Error>> {
+    log::info!("Getting snapshots");
+    let snapshots = grpc_client::get_snapshots(client, group_name).await?;
+    log::info!("Got snapshots: {:#?}", snapshots);
+
+    Ok(())
+}
+
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
     env_logger::init();
 
     let opts = GrpcClientCommand::from_args();
     let common_opts = opts.get_common_opts();
-
-    let addr = format!("http://{}:{}", common_opts.server, common_opts.port);
-    log::info!("Connecting to server at '{}'", addr);
-    let mut client = HubServiceClient::connect(addr).await?;
+    let mut client = connect(&common_opts.server, common_opts.port).await?;
 
     match opts {
         GrpcClientCommand::Camera { cmd } => match cmd {
             CameraCommand::StreamPoses { camera, .. } => {
-                log::info!("Sending hello");
-                let name = grpc_client::hello(&mut client, camera.group.clone()).await?;
-                log::info!("Streaming poses");
-                grpc_client::stream_poses(&mut client, camera.group, name).await?;
+                stream_poses(&mut client, camera.group).await?
             }
             CameraCommand::OfferSnapshots { camera, .. } => {
-                log::info!("Waiting for snapshot request in group '{}'", &camera.group);
-                grpc_client::offer_snapshots(&mut client, camera.group).await?;
+                offer_snapshots(&mut client, camera.group).await?
             }
         },
-        GrpcClientCommand::GetSnapshots { group, .. } => {
-            log::info!("Getting snapshots");
-            let snapshots = grpc_client::get_snapshots(&mut client, group).await?;
-            log::info!("Got snapshots: {:#?}", snapshots);
-        }
+        GrpcClientCommand::GetSnapshots { group, .. } => get_snapshots(&mut client, group).await?,
     };
 
     log::info!("Done");
