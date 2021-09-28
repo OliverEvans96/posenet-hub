@@ -50,7 +50,7 @@ pub async fn hello(
 
     let request = Request::new(camera_info);
     println!("Sending request");
-    let response= client.hello(request).await?;
+    let response = client.hello(request).await?;
     let message = response.into_inner();
     println!("Reply received: {:?}", message);
     Ok(name)
@@ -154,16 +154,4 @@ pub async fn wait_for_snapshot_request(
     }
 
     Ok(())
-}
-
-pub mod tests {
-    #[test]
-    fn test_random_image() {
-        use super::ImageData;
-        use rand::{thread_rng, Rng};
-
-        let mut rng = thread_rng();
-        let image: ImageData = rng.gen();
-        println!("{:?}", image);
-    }
 }
