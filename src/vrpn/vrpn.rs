@@ -13,7 +13,11 @@ pub mod ffi {
         // Server
         // fn create_server(device_name: &str) -> UniquePtr<PoseNetVrpnContainer>;
         fn create_container() -> UniquePtr<PoseNetVrpnContainer>;
-        fn update_values(server: &mut UniquePtr<PoseNetVrpnContainer>, device_name: &str, values: &[f64]);
+        fn update_values(
+            server: &mut UniquePtr<PoseNetVrpnContainer>,
+            device_name: &str,
+            values: &[f64],
+        );
         fn mainloop(server: &mut UniquePtr<PoseNetVrpnContainer>);
 
         // Client
@@ -22,7 +26,11 @@ pub mod ffi {
     }
 }
 
-pub fn update_values(server: &mut UniquePtr<ffi::PoseNetVrpnContainer>, device_name: &str, pose: Pose3D) {
+pub fn update_values(
+    server: &mut UniquePtr<ffi::PoseNetVrpnContainer>,
+    device_name: &str,
+    pose: Pose3D,
+) {
     let values: Vec<_> = pose.into();
     ffi::update_values(server, device_name, &values);
 }

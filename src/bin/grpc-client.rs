@@ -1,4 +1,3 @@
-
 use clap::App;
 
 use posenet_vr_hub::grpc::client::{hello, stream_poses};
@@ -6,15 +5,15 @@ use posenet_vr_hub::grpc::proto::hub_service_client::HubServiceClient;
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     let matches = App::new("grpc-client")
-                          .version("0.1.0")
-                          .about("Test grpc-client sends random 2D poses to posenet hub-server.")
-                          .args_from_usage(
-                            "-s, --server=[server] 'Server address (default: localhost)'
+        .version("0.1.0")
+        .about("Test grpc-client sends random 2D poses to posenet hub-server.")
+        .args_from_usage(
+            "-s, --server=[server] 'Server address (default: localhost)'
                             -p, --port=[port]      'Grpc port (default: 50051)'
-                            -g, --group=[group]    'Client group name (default: grpc_client)'")
-                          .get_matches();
+                            -g, --group=[group]    'Client group name (default: grpc_client)'",
+        )
+        .get_matches();
 
     // Get config flags or defaults
     let server = matches.value_of("server").unwrap_or("127.0.0.1");

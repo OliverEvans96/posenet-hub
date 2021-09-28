@@ -1,9 +1,9 @@
 use async_std;
-use std::time::SystemTime;
-use rand::{thread_rng, Rng};
-use rand::distributions::{Alphanumeric};
+use rand::distributions::Alphanumeric;
 use rand::prelude::ThreadRng;
+use rand::{thread_rng, Rng};
 use std::error::Error;
+use std::time::SystemTime;
 use tokio::{
     join,
     time::{sleep, Duration},
@@ -11,24 +11,40 @@ use tokio::{
 use tonic::{transport::Channel, Request};
 
 use super::proto::hub_service_client::HubServiceClient;
-use super::proto::{CameraExtrinsics, CameraIntrinsics, CameraInfo};
-use super::proto::{SnapshotClientOffer, CameraSnapshotResponse};
-use super::proto::{Point2D, Pose2D, Pose2DMessage, ImageData, Pose2DImageMessage};
+use super::proto::{CameraExtrinsics, CameraInfo, CameraIntrinsics};
+use super::proto::{CameraSnapshotResponse, SnapshotClientOffer};
+use super::proto::{ImageData, Point2D, Pose2D, Pose2DImageMessage, Pose2DMessage};
 
-pub async fn hello(client: &mut HubServiceClient<Channel>, group_name: &str) -> Result<String, Box<dyn Error>> {
+pub async fn hello(
+    client: &mut HubServiceClient<Channel>,
+    group_name: &str,
+) -> Result<String, Box<dyn Error>> {
     let mut rng = thread_rng();
     let name = &generate_name();
     let camera_info = CameraInfo {
         intrinsics: Some(CameraIntrinsics {
-            camera_matrix: vec![100.0,0.0,0.0,0.0,100.0,0.0,0.0,0.0,100.0],
-            distortion: vec![0.0,0.0,0.0,0.0,0.0],
-            rms_error: 0.0
+            camera_matrix: vec![100.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0],
+            distortion: vec![0.0, 0.0, 0.0, 0.0, 0.0],
+            rms_error: 0.0,
         }),
         extrinsics: Some(CameraExtrinsics {
-            view_matrix: vec![1.0,0.0,0.0,rng.gen(),0.0,1.0,0.0,rng.gen(),0.0,0.0,1.0,rng.gen()]
+            view_matrix: vec![
+                1.0,
+                0.0,
+                0.0,
+                rng.gen(),
+                0.0,
+                1.0,
+                0.0,
+                rng.gen(),
+                0.0,
+                0.0,
+                1.0,
+                rng.gen(),
+            ],
         }),
-        group_name: group_name.to_string(), 
-        camera_name: name.to_string()
+        group_name: group_name.to_string(),
+        camera_name: name.to_string(),
     };
     println!("Camera Info: {:?}", camera_info);
 
@@ -43,12 +59,12 @@ pub async fn hello(client: &mut HubServiceClient<Channel>, group_name: &str) -> 
 }
 
 fn generate_name() -> String {
-  // From https://docs.rs/rand/0.8.2/rand/distributions/struct.Alphanumeric.html
-  let rng = thread_rng();
-  rng.sample_iter(Alphanumeric)
-      .map(char::from)
-      .take(7)
-      .collect()
+    // From https://docs.rs/rand/0.8.2/rand/distributions/struct.Alphanumeric.html
+    let rng = thread_rng();
+    rng.sample_iter(Alphanumeric)
+        .map(char::from)
+        .take(7)
+        .collect()
 }
 
 pub async fn stream_inner(
@@ -79,7 +95,7 @@ pub async fn stream_inner(
 pub async fn stream_poses(
     client: &mut HubServiceClient<Channel>,
     group_name: &str,
-    camera_name: &str
+    camera_name: &str,
 ) -> Result<(), Box<dyn Error>> {
     let mut rng = thread_rng();
     let buf_size = 10;
@@ -96,8 +112,8 @@ pub async fn stream_poses(
 }
 
 pub async fn wait_for_snapshot_request(
-    client: &mut HubServiceClient<Channel>, 
-    group_name: String
+    client: &mut HubServiceClient<Channel>,
+    group_name: String,
 ) -> Result<(), Box<dyn Error>> {
     let mut rng = thread_rng();
     let camera_name = generate_name();
@@ -105,11 +121,14 @@ pub async fn wait_for_snapshot_request(
     // Construct offer
     let offer = SnapshotClientOffer {
         group_name: group_name.clone(),
-        camera_name: camera_name.clone()
+        camera_name: camera_name.clone(),
     };
 
     // Send offer and get stream handle from server
-    let mut stream = client.wait_for_snapshot_request(Request::new(offer)).await?.into_inner();
+    let mut stream = client
+        .wait_for_snapshot_request(Request::new(offer))
+        .await?
+        .into_inner();
 
     // Iterate over snapshot requests
     while let Some(snapshot_request) = stream.message().await? {
@@ -131,19 +150,19 @@ pub async fn wait_for_snapshot_request(
         };
 
         // Send snapshot to server
-        client.send_snapshot(Request::new(snapshot_response)).await?;
+        client
+            .send_snapshot(Request::new(snapshot_response))
+            .await?;
     }
 
     Ok(())
 }
 
-
-
 pub mod tests {
     #[test]
     fn test_random_image() {
-        use rand::{thread_rng,Rng};
         use super::ImageData;
+        use rand::{thread_rng, Rng};
 
         let mut rng = thread_rng();
         let image: ImageData = rng.gen();

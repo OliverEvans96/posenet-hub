@@ -1,6 +1,6 @@
 use futures::future;
-use rand::Rng;
 use nalgebra::Matrix3x4;
+use rand::Rng;
 use std::thread;
 use std::time::Duration;
 

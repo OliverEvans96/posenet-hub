@@ -1,17 +1,17 @@
 use async_std::channel;
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::{collections::HashMap};
 use tokio::{sync::broadcast, try_join};
 
-use crate::grpc::proto::{CameraInfo};
+use crate::grpc::proto::CameraInfo;
 use crate::grpc::server::LabeledPoses2D;
-use crate::triangulator::{Triangulator, TriangulatorConfig, LabeledPoses3D};
+use crate::triangulator::{LabeledPoses3D, Triangulator, TriangulatorConfig};
 
 // https://benkay86.github.io/rust-error-tutorial.html
-pub type BoxError = std::boxed::Box<dyn
-	std::error::Error   // must implement Error to satisfy ?
-	+ std::marker::Send // needed for threads
-	+ std::marker::Sync // needed for threads
+pub type BoxError = std::boxed::Box<
+    dyn std::error::Error // must implement Error to satisfy ?
+        + std::marker::Send // needed for threads
+        + std::marker::Sync, // needed for threads
 >;
 
 pub struct TriangulatorInfo {
@@ -51,10 +51,16 @@ impl Controller {
     async fn listen_for_poses(&self) -> Result<(), BoxError> {
         loop {
             let labeled = self.poses2d_rx.recv().await?;
-            match self.triangulators.read().unwrap().get(&labeled.group_name){
-                Some(info) => info.poses_tx.send(labeled).await.expect("triangulator channel closed."),
-                None => println!("Warning: Received a pose with an unregistered group name, discarding.."),
-            }; 
+            match self.triangulators.read().unwrap().get(&labeled.group_name) {
+                Some(info) => info
+                    .poses_tx
+                    .send(labeled)
+                    .await
+                    .expect("triangulator channel closed."),
+                None => println!(
+                    "Warning: Received a pose with an unregistered group name, discarding.."
+                ),
+            };
         }
     }
 
@@ -62,43 +68,47 @@ impl Controller {
         loop {
             let camera = self.cameras_rx.recv().await?;
             let group_name = camera.group_name.clone();
-            let create_group = match self.triangulators.read().unwrap().get(&group_name){
+            let create_group = match self.triangulators.read().unwrap().get(&group_name) {
                 Some(info) => {
-                    info.cameras_tx.send(camera.clone()).await.expect("triangulator channel closed.");
+                    info.cameras_tx
+                        .send(camera.clone())
+                        .await
+                        .expect("triangulator channel closed.");
                     false
                 }
                 None => true,
-            }; 
+            };
 
             if create_group {
                 println!("New camera group --> {}", group_name.clone());
                 let (cameras_tx, cameras_rx) = channel::unbounded::<CameraInfo>();
                 let (poses_tx, poses_rx) = channel::unbounded::<LabeledPoses2D>();
-            
+
                 let t = Triangulator::new(
                     self.config.clone(),
                     group_name.clone(),
                     cameras_rx,
                     poses_rx,
-                    self.poses3d_tx.clone()
+                    self.poses3d_tx.clone(),
                 );
                 let info = TriangulatorInfo {
                     cameras_tx,
-                    poses_tx
+                    poses_tx,
                 };
-                info.cameras_tx.send(camera).await.expect("triangulator channel closed.");
+                info.cameras_tx
+                    .send(camera)
+                    .await
+                    .expect("triangulator channel closed.");
 
                 self.triangulators
                     .write()
                     .expect("triangulators lock poisoned!")
                     .insert(group_name, info);
 
-                tokio::spawn( async move {
+                tokio::spawn(async move {
                     t.run().await.unwrap();
                 });
             }
         }
     }
-
 }
-
