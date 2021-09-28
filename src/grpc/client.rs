@@ -13,14 +13,14 @@ use tonic::{transport::Channel, Request};
 use super::proto::hub_service_client::HubServiceClient;
 use super::proto::{CameraExtrinsics, CameraInfo, CameraIntrinsics};
 use super::proto::{CameraSnapshotResponse, SnapshotClientOffer};
-use super::proto::{ImageData, Point2D, Pose2D, Pose2DImageMessage, Pose2DMessage};
+use super::proto::{Pose2DImageMessage, Pose2DMessage};
 
 pub async fn hello(
     client: &mut HubServiceClient<Channel>,
-    group_name: &str,
+    group_name: String,
 ) -> Result<String, Box<dyn Error>> {
     let mut rng = thread_rng();
-    let name = &generate_name();
+    let name = generate_name();
     let camera_info = CameraInfo {
         intrinsics: Some(CameraIntrinsics {
             camera_matrix: vec![100.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0],
@@ -43,19 +43,17 @@ pub async fn hello(
                 rng.gen(),
             ],
         }),
-        group_name: group_name.to_string(),
-        camera_name: name.to_string(),
+        group_name: group_name,
+        camera_name: name.clone(),
     };
     println!("Camera Info: {:?}", camera_info);
 
     let request = Request::new(camera_info);
-    let response_promise = client.hello(request);
-    println!("Message sent.");
-
-    let response = response_promise.await?;
+    println!("Sending request");
+    let response= client.hello(request).await?;
     let message = response.into_inner();
     println!("Reply received: {:?}", message);
-    Ok(name.to_string())
+    Ok(name)
 }
 
 fn generate_name() -> String {
@@ -68,8 +66,8 @@ fn generate_name() -> String {
 }
 
 pub async fn stream_inner(
-    group_name: &str,
-    camera_name: &str,
+    group_name: String,
+    camera_name: String,
     tx: async_std::channel::Sender<Pose2DMessage>,
     rng: &mut ThreadRng,
 ) -> Result<(), Box<dyn Error>> {
@@ -77,8 +75,8 @@ pub async fn stream_inner(
     for i in 0..nposes {
         println!("Sending pose {}", i);
         let pose_message = Pose2DMessage {
-            group_name: group_name.to_string(),
-            camera_name: camera_name.to_string(),
+            group_name: group_name.clone(),
+            camera_name: camera_name.clone(),
             poses: vec![rng.gen()],
         };
 
@@ -94,8 +92,8 @@ pub async fn stream_inner(
 
 pub async fn stream_poses(
     client: &mut HubServiceClient<Channel>,
-    group_name: &str,
-    camera_name: &str,
+    group_name: String,
+    camera_name: String,
 ) -> Result<(), Box<dyn Error>> {
     let mut rng = thread_rng();
     let buf_size = 10;
