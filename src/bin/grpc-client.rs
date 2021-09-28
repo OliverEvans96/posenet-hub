@@ -63,7 +63,7 @@ enum GrpcClientCommand {
 
     /// Act as a non-camera client, and request a
     /// snapshot from currently connected cameras
-    GetSnapshot {
+    GetSnapshots {
         /// Camera group to request snapshots from
         #[structopt(short, long)]
         group: String,
@@ -77,7 +77,7 @@ impl GrpcClientCommand {
     fn get_common_opts(&self) -> &CommonOpts {
         match self {
             GrpcClientCommand::Camera { cmd, .. } => cmd.get_common_opts(),
-            GrpcClientCommand::GetSnapshot { common, .. } => common,
+            GrpcClientCommand::GetSnapshots { common, .. } => common,
         }
     }
 }
@@ -103,13 +103,14 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 grpc_client::stream_poses(&mut client, camera.group, name).await?;
             }
             CameraCommand::OfferSnapshots { camera, .. } => {
-                log::info!("Waiting for snapshot request");
-                grpc_client::wait_for_snapshot_request(&mut client, camera.group).await?;
+                log::info!("Waiting for snapshot request in group '{}'", &camera.group);
+                grpc_client::offer_snapshots(&mut client, camera.group).await?;
             }
         },
-        GrpcClientCommand::GetSnapshot { group, .. } => {
-            // TODO
-            unimplemented!()
+        GrpcClientCommand::GetSnapshots { group, .. } => {
+            log::info!("Getting snapshots");
+            let snapshots = grpc_client::get_snapshots(&mut client, group).await?;
+            log::info!("Got snapshots: {:#?}", snapshots);
         }
     };
 
