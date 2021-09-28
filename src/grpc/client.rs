@@ -42,110 +42,18 @@ pub async fn hello(client: &mut HubServiceClient<Channel>, group_name: &str) -> 
 
 fn generate_name() -> String {
   // From https://docs.rs/rand/0.8.2/rand/distributions/struct.Alphanumeric.html
-  let mut rng = thread_rng();
-  iter::repeat(())
-      .map(|()| rng.sample(Alphanumeric))
+  let rng = thread_rng();
+  rng.sample_iter(Alphanumeric)
       .map(char::from)
       .take(7)
       .collect()
-}
-
-pub fn random_pose() -> Pose2D {
-    let mut rng = thread_rng();
-    Pose2D {
-        nose: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_eye: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_eye: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_ear: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_ear: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_shoulder: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_shoulder: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_elbow: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_elbow: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_wrist: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_wrist: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_hip: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_hip: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_knee: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_knee: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_ankle: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_ankle: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        score: 1.0
-    }
 }
 
 pub async fn stream_inner(
     group_name: &str,
     camera_name: &str,
     tx: async_std::channel::Sender<Pose2DMessage>,
+    rng: &mut ThreadRng,
 ) -> Result<(), Box<dyn Error>> {
     let nposes: u32 = 1000;
     for i in 0..nposes {
@@ -153,7 +61,7 @@ pub async fn stream_inner(
         let pose_message = Pose2DMessage {
             group_name: group_name.to_string(),
             camera_name: camera_name.to_string(),
-            poses: vec![random_pose()],
+            poses: vec![rng.gen()],
         };
 
         tx.try_send(pose_message)?;

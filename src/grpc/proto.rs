@@ -1,5 +1,8 @@
 tonic::include_proto!("posenet_vr");
 
+use rand::{distributions::Standard, prelude::Distribution};
+use std::convert::TryInto;
+
 use crate::utils::pop_n;
 
 // PoseNet returns 17 points on the body
@@ -224,6 +227,94 @@ impl From<Vec<f64>> for Pose3D {
             left_ankle: Some(pop_n(&mut values, NDIM).into()),
             right_ankle: Some(pop_n(&mut values, NDIM).into()),
             score: values.pop().unwrap()
+        }
+    }
+}
+
+
+// Random generation of points, poses, and images
+impl Distribution<Point2D> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Point2D {
+        Point2D {
+            x: rng.gen(),
+            y: rng.gen(),
+            score: rng.gen(),
+        }
+    }
+}
+
+impl Distribution<Point3D> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Point3D {
+        Point3D {
+            x: rng.gen(),
+            y: rng.gen(),
+            z: rng.gen(),
+            score: rng.gen(),
+        }
+    }
+}
+
+impl Distribution<Pose2D> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Pose2D {
+        Pose2D {
+            nose: Some(rng.gen()),
+            left_eye: Some(rng.gen()),
+            right_eye: Some(rng.gen()),
+            left_ear: Some(rng.gen()),
+            right_ear: Some(rng.gen()),
+            left_shoulder: Some(rng.gen()),
+            right_shoulder: Some(rng.gen()),
+            left_elbow: Some(rng.gen()),
+            right_elbow: Some(rng.gen()),
+            left_wrist: Some(rng.gen()),
+            right_wrist: Some(rng.gen()),
+            left_hip: Some(rng.gen()),
+            right_hip: Some(rng.gen()),
+            left_knee: Some(rng.gen()),
+            right_knee: Some(rng.gen()),
+            left_ankle: Some(rng.gen()),
+            right_ankle: Some(rng.gen()),
+            score: rng.gen(),
+        }
+    }
+}
+
+impl Distribution<Pose3D> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Pose3D {
+        Pose3D {
+            nose: Some(rng.gen()),
+            left_eye: Some(rng.gen()),
+            right_eye: Some(rng.gen()),
+            left_ear: Some(rng.gen()),
+            right_ear: Some(rng.gen()),
+            left_shoulder: Some(rng.gen()),
+            right_shoulder: Some(rng.gen()),
+            left_elbow: Some(rng.gen()),
+            right_elbow: Some(rng.gen()),
+            left_wrist: Some(rng.gen()),
+            right_wrist: Some(rng.gen()),
+            left_hip: Some(rng.gen()),
+            right_hip: Some(rng.gen()),
+            left_knee: Some(rng.gen()),
+            right_knee: Some(rng.gen()),
+            left_ankle: Some(rng.gen()),
+            right_ankle: Some(rng.gen()),
+            score: rng.gen(),
+        }
+    }
+}
+
+impl Distribution<ImageData> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> ImageData {
+        let width: usize = 10;
+        let height: usize = 10;
+        let num_pixels = width * height;
+
+        ImageData {
+            width: width.try_into().unwrap(),
+            height: height.try_into().unwrap(),
+            // data: rng.sample_iter(Standard).take(num_pixels).collect(),
+            data: (0..num_pixels).map(|_| rng.gen()).collect()
         }
     }
 }
