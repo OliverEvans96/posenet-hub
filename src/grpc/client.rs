@@ -12,7 +12,9 @@ use tonic::{transport::Channel, Request};
 
 use super::proto::hub_service_client::HubServiceClient;
 use super::proto::{CameraExtrinsics, CameraInfo, CameraIntrinsics};
-use super::proto::{CameraSnapshotResponse, ServerSnapshotRequest, ServerSnapshotResponse, SnapshotClientOffer};
+use super::proto::{
+    CameraSnapshotRequest, CameraSnapshotResponse, ServerSnapshotRequest, SnapshotClientOffer,
+};
 use super::proto::{Pose2DImageMessage, Pose2DMessage};
 
 pub async fn hello(
@@ -109,11 +111,49 @@ pub async fn stream_poses(
     Ok(())
 }
 
+async fn handle_camera_snapshot_request(
+    client: &mut HubServiceClient<Channel>,
+    request: CameraSnapshotRequest,
+    group_name: String,
+    camera_name: String,
+) -> Result<(), Box<dyn Error>> {
+    log::info!("Handling snapshot request '{}'", &request.snapshot_id);
+
+    let mut rng = thread_rng();
+
+    // Construct response
+    let image_message = Pose2DImageMessage {
+        // Need to clone strings each time we loop
+        group_name: group_name.clone(),
+        camera_name: camera_name.clone(),
+        poses: vec![rng.gen()],
+        image: Some(rng.gen()),
+        timestamp: Some(SystemTime::now().into()),
+    };
+
+    let snapshot_response = CameraSnapshotResponse {
+        snapshot_id: request.snapshot_id.clone(),
+        message: Some(image_message),
+    };
+
+    // Send snapshot to server
+    client
+        .send_snapshot(Request::new(snapshot_response))
+        .await?;
+
+    log::info!(
+        "Finished handling snapshot request '{}'",
+        request.snapshot_id
+    );
+
+    Ok(())
+}
+
 pub async fn offer_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
 ) -> Result<(), Box<dyn Error>> {
-    let mut rng = thread_rng();
+    // TODO: More logging
     let camera_name = generate_name();
 
     // Construct offer
@@ -131,26 +171,13 @@ pub async fn offer_snapshots(
     // Iterate over snapshot requests
     while let Some(snapshot_request) = stream.message().await? {
         // TODO: Use server timestamp somehow?
-
-        // Construct response
-        let image_message = Pose2DImageMessage {
-            // Need to clone strings each time we loop
-            group_name: group_name.clone(),
-            camera_name: camera_name.clone(),
-            poses: vec![rng.gen()],
-            image: Some(rng.gen()),
-            timestamp: Some(SystemTime::now().into()),
-        };
-
-        let snapshot_response = CameraSnapshotResponse {
-            snapshot_id: snapshot_request.snapshot_id,
-            message: Some(image_message),
-        };
-
-        // Send snapshot to server
-        client
-            .send_snapshot(Request::new(snapshot_response))
-            .await?;
+        handle_camera_snapshot_request(
+            client,
+            snapshot_request,
+            group_name.clone(),
+            camera_name.clone(),
+        )
+        .await?;
     }
 
     Ok(())
