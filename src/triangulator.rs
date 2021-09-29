@@ -59,9 +59,26 @@ fn collect_points_by_keypoint(poses: Vec<Pose2D>) -> Vec<Vec<SPoint2>> {
     points_grouped_by_keypoint
 }
 
+pub fn calculate_camera_matrix(info: &CameraInfo) -> Option<Matrix3x4<f64>> {
+    let intrinsics = info.intrinsics.as_ref()?;
+    let extrinsics = info.extrinsics.as_ref()?;
+
+    let c = &intrinsics.camera_matrix;
+    let k = Matrix3::new(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8]);
+
+    let v = &extrinsics.view_matrix;
+    let rt = Matrix3x4::new(
+        v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11],
+    );
+
+    let p = k * rt;
+    Some(p)
+}
+
+
 pub fn triangulate_from_poses_and_camera_matrices(
     poses: Vec<Pose2D>,
-    camera_matrices: Vec<Matrix3x4<f64>>,
+    camera_matrices: &[Matrix3x4<f64>],
 ) -> Pose3D {
     // Aggregate 2D pose scores by multiplying, TODO better way?
     let pose_score = poses.iter().fold(1.0, |total, pose| total * pose.score);
@@ -80,7 +97,7 @@ pub fn triangulate_from_poses_and_camera_matrices(
         .into_iter()
         .map(|ks| ks.into_iter().map(|(p, s)| p).collect())
         .collect();
-    let points3d = triangulate_many(&points2d, &camera_matrices);
+    let points3d = triangulate_many(&points2d, camera_matrices);
 
     // Pose3D from 3D points
     let scored_points3d = points3d
@@ -144,7 +161,7 @@ impl Triangulator {
                 if camera_matrices.len() >= self.config.min_cameras {
                     // Reconstruct the 3D points
                     let points3d =
-                        triangulate_from_poses_and_camera_matrices(poses, camera_matrices);
+                        triangulate_from_poses_and_camera_matrices(poses, &camera_matrices);
                     let pose3d = points3d.into();
                     // let scored_pose3d = score_from_poses(poses, pose3d);
 
@@ -197,8 +214,7 @@ impl Triangulator {
     async fn listen_for_cameras(&self) -> Result<(), BoxError> {
         loop {
             let camera = self.cameras_rx.recv().await?;
-            let matrix = self
-                .calculate_camera_matrix(&camera)
+            let matrix = calculate_camera_matrix(&camera)
                 .expect("error in calculate camera matrix");
             let state = CameraState {
                 info: camera,
@@ -249,22 +265,6 @@ impl Triangulator {
                 (user_poses, camera_matrices)
             })
             .collect()
-    }
-
-    fn calculate_camera_matrix(&self, info: &CameraInfo) -> Option<Matrix3x4<f64>> {
-        let intrinsics = info.intrinsics.as_ref()?;
-        let extrinsics = info.extrinsics.as_ref()?;
-
-        let c = &intrinsics.camera_matrix;
-        let k = Matrix3::new(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8]);
-
-        let v = &extrinsics.view_matrix;
-        let rt = Matrix3x4::new(
-            v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11],
-        );
-
-        let p = k * rt;
-        Some(p)
     }
 
     fn get_camera_matrix(&self, name: &str) -> Option<Matrix3x4<f64>> {

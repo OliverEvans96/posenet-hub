@@ -11,8 +11,8 @@ use uuid::Uuid;
 use super::proto::hub_service_server::{HubService, HubServiceServer};
 use super::proto::{
     CameraInfo, CameraSnapshotRequest, CameraSnapshotResponse, Empty, HelloResponse, Pose2D,
-    Pose2DImageMessage, Pose2DMessage, ServerSnapshotRequest, ServerSnapshotResponse,
-    SnapshotClientOffer,
+    Pose2DImageMessage, Pose2DMessage, Pose3D, ServerSnapshotRequest, ServerSnapshotResponse,
+    SnapshotClientOffer, TriangulationRequest,
 };
 
 pub struct HubServer {
@@ -48,6 +48,7 @@ pub struct LabeledPoses2D {
 impl HubService for HubServer {
     // type WaitForSnapshotRequestStream = ReceiverStream<Result<CameraSnapshotRequest, Status>>;
     type WaitForSnapshotRequestStream = channel::Receiver<Result<CameraSnapshotRequest, Status>>;
+    type TriangulateStream = channel::Receiver<Result<Pose3D, Status>>;
 
     async fn hello(&self, request: Request<CameraInfo>) -> Result<Response<HelloResponse>, Status> {
         let info = request.into_inner();
@@ -247,6 +248,76 @@ impl HubService for HubServer {
                 }
             }
         }
+    }
+
+    async fn triangulate(
+        &self,
+        request: tonic::Request<tonic::Streaming<super::proto::TriangulationRequest>>,
+    ) -> Result<tonic::Response<Self::TriangulateStream>, tonic::Status> {
+        use crate::triangulator;
+        // Collect all poses until client stops streaming
+        let mut stream = request.into_inner();
+        let mut cameras = Vec::<CameraInfo>::new();
+        let mut poses_by_subject = Vec::new();
+
+        let (tx, rx) = channel::unbounded();
+
+        let mut i: u8 = 0;
+        while let Some(viewpoint) = stream.message().await? {
+            let TriangulationRequest { camera, poses } = viewpoint;
+            // Group poses by subject (they arrive grouped by camera)
+            if i == 0 {
+                for pose in poses {
+                    poses_by_subject.push(vec![pose])
+                }
+            } else {
+                if poses.len() == poses_by_subject.len() {
+                    for (j, pose) in poses.into_iter().enumerate() {
+                        poses_by_subject[j].push(pose);
+                    }
+                } else {
+                    Err(tonic::Status::invalid_argument(
+                        "All snapshots must currently have the same number of poses.",
+                    ))?;
+                }
+            }
+            // Save camera, too
+            if let Some(camera) = camera {
+                cameras.push(camera);
+            } else {
+                Err(tonic::Status::invalid_argument(
+                    "All camera data must be present.",
+                ))?;
+            }
+            // Increment counter
+            i += 1;
+        }
+
+        // Convert CameraInfo objects to Camera Matrices
+        let camera_matrices = cameras
+            .iter()
+            .map(triangulator::calculate_camera_matrix)
+            .collect::<Option<Vec<_>>>()
+            .ok_or(tonic::Status::invalid_argument(
+                "Not all required camera info was provided.",
+            ))?;
+
+        // Triangulate and stream 3d poses back to client
+        for poses in poses_by_subject {
+            let pose3d =
+                triangulator::triangulate_from_poses_and_camera_matrices(poses, &camera_matrices);
+            // NOTE: Awaiting sequentially to make sure
+            // we return the poses in the correct order
+            tx.send(Ok(pose3d))
+                .await
+                .or(Err(tonic::Status::unknown("Failed to return streaming poses")))?;
+        }
+
+        // Return receiver to client
+        // NOTE: channel happens to already have been populated
+        // in this scenario, but in general, more items
+        // could be streamed later by keeping `tx` handy
+        Ok(tonic::Response::new(rx))
     }
 }
 
