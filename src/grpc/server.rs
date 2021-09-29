@@ -283,7 +283,7 @@ impl HubService for HubServer {
             }
             // Save camera, too
             if let Some(camera) = camera {
-                cameras.push(camera);
+                cameras.push(camera.into());
             } else {
                 Err(tonic::Status::invalid_argument(
                     "All camera data must be present.",
@@ -308,9 +308,9 @@ impl HubService for HubServer {
                 triangulator::triangulate_from_poses_and_camera_matrices(poses, &camera_matrices);
             // NOTE: Awaiting sequentially to make sure
             // we return the poses in the correct order
-            tx.send(Ok(pose3d))
-                .await
-                .or(Err(tonic::Status::unknown("Failed to return streaming poses")))?;
+            tx.send(Ok(pose3d)).await.or(Err(tonic::Status::unknown(
+                "Failed to return streaming poses",
+            )))?;
         }
 
         // Return receiver to client

@@ -56,6 +56,8 @@ impl From<Point3D> for SPoint3 {
 
 // Convert between gRPC Pose and (Vec<nalgebra::Point>, f64)
 
+// TODO: Change most of these to TryFrom
+
 impl From<(Vec<SPoint2>, f64)> for Pose2D {
     fn from(t: (Vec<SPoint2>, f64)) -> Self {
         // TODO: Allow missing points
@@ -344,6 +346,18 @@ impl Distribution<ImageData> for Standard {
             width: width.try_into().unwrap(),
             height: height.try_into().unwrap(),
             data: (0..num_bytes).map(|_| rng.gen()).collect(),
+        }
+    }
+}
+
+impl From<AnonymousCameraInfo> for CameraInfo {
+    /// Convert an anonymous camera to a named camera with an empty name
+    fn from(anon: AnonymousCameraInfo) -> Self {
+        Self {
+            camera_name: String::new(),
+            group_name: String::new(),
+            extrinsics: anon.extrinsics,
+            intrinsics: anon.intrinsics,
         }
     }
 }
