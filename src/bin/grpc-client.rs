@@ -5,6 +5,7 @@ use structopt::StructOpt;
 
 use posenet_vr_hub::grpc::client as grpc_client;
 use posenet_vr_hub::grpc::proto::hub_service_client::HubServiceClient;
+use posenet_vr_hub::grpc::proto::ImageData;
 use tonic::transport::Channel;
 
 #[derive(Debug, StructOpt)]
@@ -36,24 +37,20 @@ enum CameraCommand {
         common: CommonOpts,
     },
 
-    /// Stand by and offer to take snapshots at the server's request
+    /// Stand by and offer to take phony snapshots at the server's request
     OfferSnapshots {
+        /// Optional path to an image file to send when requested.
+        /// Otherwise, random RGB pixels will be generated.
+        #[structopt(short, long)]
+        #[structopt(parse(from_os_str))]
+        image: Option<PathBuf>,
+
         #[structopt(flatten)]
         camera: CameraOpts,
 
         #[structopt(flatten)]
         common: CommonOpts,
     },
-}
-
-impl CameraCommand {
-    /// Any variant should have the common options, so provide a unified interface
-    fn get_common_opts(&self) -> &CommonOpts {
-        match self {
-            CameraCommand::StreamPoses { common, .. } => common,
-            CameraCommand::OfferSnapshots { common, .. } => common,
-        }
-    }
 }
 
 #[derive(Debug, StructOpt)]
@@ -86,6 +83,16 @@ enum GrpcClientCommand {
         #[structopt(flatten)]
         common: CommonOpts,
     },
+}
+
+impl CameraCommand {
+    /// Any variant should have the common options, so provide a unified interface
+    fn get_common_opts(&self) -> &CommonOpts {
+        match self {
+            CameraCommand::StreamPoses { common, .. } => common,
+            CameraCommand::OfferSnapshots { common, .. } => common,
+        }
+    }
 }
 
 impl GrpcClientCommand {
@@ -122,10 +129,17 @@ async fn stream_poses(
 async fn offer_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
+    image_path: Option<PathBuf>,
 ) -> Result<(), Box<dyn Error>> {
     log::info!("Waiting for snapshot request in group '{}'", &group_name);
-    grpc_client::offer_snapshots(client, group_name).await?;
 
+    let image_data = if let Some(image_path) = image_path {
+        Some(ImageData::from_path(&image_path)?)
+    } else {
+        None
+    };
+
+    grpc_client::offer_snapshots(client, group_name, image_data).await?;
     Ok(())
 }
 
@@ -153,31 +167,33 @@ async fn get_snapshots(
     let snapshot_dir_path = output_path.join(snapshots_response.snapshot_id);
     fs::create_dir(&snapshot_dir_path)?;
 
+    // TODO: split some of this into a separate function
     // Loop over snapshots
     for message in snapshots_response.messages {
         // Get image data from snapshot message
         if let Some(img) = message.image {
-            if let Some(image_buf) = image::ImageBuffer::<image::Rgb<_>, _>::from_raw(img.width, img.height, img.data) {
+            if let Some(image_buf) =
+                image::ImageBuffer::<image::Rgb<_>, _>::from_raw(img.width, img.height, img.data)
+            {
                 let image_filename = format!("{}.jpg", message.camera_name);
                 let image_path = snapshot_dir_path.join(image_filename);
 
                 // Write image data to file
                 image_buf.save(image_path)?;
             } else {
-              log::error!("Couldn't construct image buffer - too much data");
+                log::error!("Couldn't construct image buffer - too much data");
             }
         } else {
-          log::warn!("Snapshot contained no image!");
+            log::warn!("Snapshot contained no image!");
         }
 
         // Write pose data to file
         let pose_filename = format!("{}.yaml", message.camera_name);
         let pose_path = snapshot_dir_path.join(pose_filename);
-        // TODO: Maybe don't need to exit completely if one of these fails? 
+        // TODO: Maybe don't need to exit completely if one of these fails?
         // could handle errors more gracefully
         let pose_file = fs::File::create(pose_path)?;
         serde_yaml::to_writer(pose_file, &message.poses)?;
-
     }
 
     Ok(())
@@ -197,8 +213,8 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
             CameraCommand::StreamPoses { camera, .. } => {
                 stream_poses(&mut client, camera.group).await?
             }
-            CameraCommand::OfferSnapshots { camera, .. } => {
-                offer_snapshots(&mut client, camera.group).await?
+            CameraCommand::OfferSnapshots { camera, image, .. } => {
+                offer_snapshots(&mut client, camera.group, image).await?
             }
         },
         GrpcClientCommand::GetSnapshots { group, output, .. } => {

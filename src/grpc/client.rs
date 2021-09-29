@@ -16,7 +16,7 @@ use super::proto::{
     CameraSnapshotRequest, CameraSnapshotResponse, ServerSnapshotRequest, ServerSnapshotResponse,
     SnapshotClientOffer,
 };
-use super::proto::{Pose2DImageMessage, Pose2DMessage};
+use super::proto::{ImageData, Pose2DImageMessage, Pose2DMessage};
 
 pub async fn hello(
     client: &mut HubServiceClient<Channel>,
@@ -117,6 +117,7 @@ async fn handle_camera_snapshot_request(
     request: CameraSnapshotRequest,
     group_name: String,
     camera_name: String,
+    image_data: Option<ImageData>,
 ) -> Result<(), Box<dyn Error>> {
     log::info!("Handling snapshot request '{}'", &request.snapshot_id);
 
@@ -128,7 +129,7 @@ async fn handle_camera_snapshot_request(
         group_name: group_name.clone(),
         camera_name: camera_name.clone(),
         poses: vec![rng.gen()],
-        image: Some(rng.gen()),
+        image: image_data.or_else(|| Some(rng.gen())),
         timestamp: Some(SystemTime::now().into()),
     };
 
@@ -150,9 +151,13 @@ async fn handle_camera_snapshot_request(
     Ok(())
 }
 
+/// Offer fake snapshots, with the option
+/// to send a predefined image instead of
+/// random RGB values.
 pub async fn offer_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
+    image_data: Option<ImageData>,
 ) -> Result<(), Box<dyn Error>> {
     // TODO: More logging
     let camera_name = generate_name();
@@ -177,6 +182,7 @@ pub async fn offer_snapshots(
             snapshot_request,
             group_name.clone(),
             camera_name.clone(),
+            image_data.clone(),
         )
         .await?;
     }

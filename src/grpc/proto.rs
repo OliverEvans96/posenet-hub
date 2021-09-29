@@ -2,6 +2,8 @@ tonic::include_proto!("posenet_vr");
 
 use rand::{distributions::Standard, prelude::Distribution};
 use std::convert::TryInto;
+use std::error::Error;
+use std::path::Path;
 
 use crate::utils::pop_n;
 
@@ -308,6 +310,25 @@ impl Distribution<Pose3D> for Standard {
             right_ankle: Some(rng.gen()),
             score: rng.gen(),
         }
+    }
+}
+
+impl From<image::DynamicImage> for ImageData {
+    fn from(img: image::DynamicImage) -> Self {
+        let rgb_img = img.to_rgb8();
+        let (width, height) = rgb_img.dimensions();
+        Self {
+            width,
+            height,
+            data: rgb_img.into_raw(),
+        }
+    }
+}
+
+impl ImageData {
+    /// Read image from file
+    pub fn from_path(image_path: &Path) -> Result<Self, Box<dyn Error>> {
+        Ok(image::open(image_path)?.into())
     }
 }
 
