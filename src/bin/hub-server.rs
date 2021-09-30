@@ -3,7 +3,7 @@ use async_std::channel;
 use tokio::{sync::broadcast, try_join};
 
 use posenet_vr_hub::controller::{BoxError, Controller};
-use posenet_vr_hub::grpc::proto::{CameraInfo, Pose3D};
+use posenet_vr_hub::grpc::proto::CameraInfo;
 use posenet_vr_hub::grpc::server::LabeledPoses2D;
 use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer};
 use posenet_vr_hub::triangulator::{LabeledPoses3D, TriangulatorConfig};
@@ -11,6 +11,9 @@ use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
 
 #[tokio::main]
 async fn main() -> Result<(), BoxError> {
+    dotenv::dotenv().ok();
+    env_logger::init();
+
     println!("Hub main start");
 
     // Create communication channels
