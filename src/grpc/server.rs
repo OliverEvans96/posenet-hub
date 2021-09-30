@@ -54,11 +54,6 @@ impl HubService for HubServer {
 
     async fn hello(&self, request: Request<CameraInfo>) -> Result<Response<HelloResponse>, Status> {
         let info = request.into_inner();
-        // let name = generate_name();
-        // let camera = NamedCameraInfo {
-        //     name: name.clone(),
-        //     info,
-        // };
         self.cameras_tx
             .send(info)
             .await
@@ -194,7 +189,14 @@ impl HubService for HubServer {
                 timestamp: Some(SystemTime::now().into()),
             };
 
-            let (camera_names, offer_txs): (Vec<_>, Vec<_>) = group_offers.iter().unzip();
+            let (camera_names, offer_txs): (Vec<_>, Vec<_>) = group_offers
+                .iter()
+                // Filter out closed offers
+                // TODO: Better to actually remove closed offers from offers_hm (which this is not doing)
+                // when camera disconnects by implementing a custom Stream wrapper.
+                //  See https://github.com/hyperium/tonic/issues/377
+                .filter(|(_, offer)| !offer.is_closed())
+                .unzip();
 
             // Create channel for snapshot_id before requesting
             let num_offers = camera_names.len();
