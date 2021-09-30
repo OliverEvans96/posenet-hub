@@ -1,5 +1,10 @@
 tonic::include_proto!("posenet_vr");
 
+use rand::{distributions::Standard, prelude::Distribution};
+use std::convert::TryInto;
+use std::error::Error;
+use std::path::Path;
+
 use crate::utils::pop_n;
 
 // PoseNet returns 17 points on the body
@@ -16,8 +21,12 @@ pub type SPoint3 = (nalgebra::Point3<f64>, f64);
 
 impl From<SPoint2> for Point2D {
     fn from(t: SPoint2) -> Self {
-        let (p,s) = t;
-        Self { x: p.x, y: p.y, score: s }
+        let (p, s) = t;
+        Self {
+            x: p.x,
+            y: p.y,
+            score: s,
+        }
     }
 }
 
@@ -29,12 +38,12 @@ impl From<Point2D> for SPoint2 {
 
 impl From<SPoint3> for Point3D {
     fn from(t: SPoint3) -> Self {
-        let (p,s) = t;
+        let (p, s) = t;
         Self {
             x: p.x,
             y: p.y,
             z: p.z,
-            score: s
+            score: s,
         }
     }
 }
@@ -47,10 +56,12 @@ impl From<Point3D> for SPoint3 {
 
 // Convert between gRPC Pose and (Vec<nalgebra::Point>, f64)
 
+// TODO: Change most of these to TryFrom
+
 impl From<(Vec<SPoint2>, f64)> for Pose2D {
     fn from(t: (Vec<SPoint2>, f64)) -> Self {
         // TODO: Allow missing points
-        let (v,s) = t;
+        let (v, s) = t;
         Self {
             nose: Some(v[0].into()),
             left_eye: Some(v[1].into()),
@@ -69,7 +80,7 @@ impl From<(Vec<SPoint2>, f64)> for Pose2D {
             right_knee: Some(v[14].into()),
             left_ankle: Some(v[15].into()),
             right_ankle: Some(v[16].into()),
-            score: s
+            score: s,
         }
     }
 }
@@ -77,7 +88,7 @@ impl From<(Vec<SPoint2>, f64)> for Pose2D {
 impl From<(Vec<SPoint3>, f64)> for Pose3D {
     fn from(t: (Vec<SPoint3>, f64)) -> Self {
         // TODO: Allow missing points
-        let (v,s) = t;
+        let (v, s) = t;
         Self {
             nose: Some(v[0].into()),
             left_eye: Some(v[1].into()),
@@ -96,7 +107,7 @@ impl From<(Vec<SPoint3>, f64)> for Pose3D {
             right_knee: Some(v[14].into()),
             left_ankle: Some(v[15].into()),
             right_ankle: Some(v[16].into()),
-            score: s
+            score: s,
         }
     }
 }
@@ -105,52 +116,56 @@ impl From<(Vec<SPoint3>, f64)> for Pose3D {
 impl From<Pose2D> for (Vec<SPoint2>, f64) {
     fn from(pose: Pose2D) -> Self {
         // TODO: Allow missing points
-        (vec![
-            pose.nose.unwrap().into(),
-            pose.left_eye.unwrap().into(),
-            pose.right_eye.unwrap().into(),
-            pose.left_ear.unwrap().into(),
-            pose.right_ear.unwrap().into(),
-            pose.left_shoulder.unwrap().into(),
-            pose.right_shoulder.unwrap().into(),
-            pose.left_elbow.unwrap().into(),
-            pose.right_elbow.unwrap().into(),
-            pose.left_wrist.unwrap().into(),
-            pose.right_wrist.unwrap().into(),
-            pose.left_hip.unwrap().into(),
-            pose.right_hip.unwrap().into(),
-            pose.left_knee.unwrap().into(),
-            pose.right_knee.unwrap().into(),
-            pose.left_ankle.unwrap().into(),
-            pose.right_ankle.unwrap().into(),
-        ],
-        pose.score)
+        (
+            vec![
+                pose.nose.unwrap().into(),
+                pose.left_eye.unwrap().into(),
+                pose.right_eye.unwrap().into(),
+                pose.left_ear.unwrap().into(),
+                pose.right_ear.unwrap().into(),
+                pose.left_shoulder.unwrap().into(),
+                pose.right_shoulder.unwrap().into(),
+                pose.left_elbow.unwrap().into(),
+                pose.right_elbow.unwrap().into(),
+                pose.left_wrist.unwrap().into(),
+                pose.right_wrist.unwrap().into(),
+                pose.left_hip.unwrap().into(),
+                pose.right_hip.unwrap().into(),
+                pose.left_knee.unwrap().into(),
+                pose.right_knee.unwrap().into(),
+                pose.left_ankle.unwrap().into(),
+                pose.right_ankle.unwrap().into(),
+            ],
+            pose.score,
+        )
     }
 }
 
 impl From<Pose3D> for (Vec<SPoint3>, f64) {
     fn from(pose: Pose3D) -> Self {
         // TODO: Allow missing points
-        (vec![
-            pose.nose.unwrap().into(),
-            pose.left_eye.unwrap().into(),
-            pose.right_eye.unwrap().into(),
-            pose.left_ear.unwrap().into(),
-            pose.right_ear.unwrap().into(),
-            pose.left_shoulder.unwrap().into(),
-            pose.right_shoulder.unwrap().into(),
-            pose.left_elbow.unwrap().into(),
-            pose.right_elbow.unwrap().into(),
-            pose.left_wrist.unwrap().into(),
-            pose.right_wrist.unwrap().into(),
-            pose.left_hip.unwrap().into(),
-            pose.right_hip.unwrap().into(),
-            pose.left_knee.unwrap().into(),
-            pose.right_knee.unwrap().into(),
-            pose.left_ankle.unwrap().into(),
-            pose.right_ankle.unwrap().into(),
-        ],
-        pose.score)
+        (
+            vec![
+                pose.nose.unwrap().into(),
+                pose.left_eye.unwrap().into(),
+                pose.right_eye.unwrap().into(),
+                pose.left_ear.unwrap().into(),
+                pose.right_ear.unwrap().into(),
+                pose.left_shoulder.unwrap().into(),
+                pose.right_shoulder.unwrap().into(),
+                pose.left_elbow.unwrap().into(),
+                pose.right_elbow.unwrap().into(),
+                pose.left_wrist.unwrap().into(),
+                pose.right_wrist.unwrap().into(),
+                pose.left_hip.unwrap().into(),
+                pose.right_hip.unwrap().into(),
+                pose.left_knee.unwrap().into(),
+                pose.right_knee.unwrap().into(),
+                pose.left_ankle.unwrap().into(),
+                pose.right_ankle.unwrap().into(),
+            ],
+            pose.score,
+        )
     }
 }
 
@@ -171,7 +186,7 @@ impl From<Vec<f64>> for Point3D {
             x: v[0],
             y: v[1],
             z: v[2],
-            score: v[3]
+            score: v[3],
         }
     }
 }
@@ -223,7 +238,126 @@ impl From<Vec<f64>> for Pose3D {
             right_knee: Some(pop_n(&mut values, NDIM).into()),
             left_ankle: Some(pop_n(&mut values, NDIM).into()),
             right_ankle: Some(pop_n(&mut values, NDIM).into()),
-            score: values.pop().unwrap()
+            score: values.pop().unwrap(),
+        }
+    }
+}
+
+// Random generation of points, poses, and images
+impl Distribution<Point2D> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Point2D {
+        Point2D {
+            x: rng.gen(),
+            y: rng.gen(),
+            score: rng.gen(),
+        }
+    }
+}
+
+impl Distribution<Point3D> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Point3D {
+        Point3D {
+            x: rng.gen(),
+            y: rng.gen(),
+            z: rng.gen(),
+            score: rng.gen(),
+        }
+    }
+}
+
+impl Distribution<Pose2D> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Pose2D {
+        Pose2D {
+            nose: Some(rng.gen()),
+            left_eye: Some(rng.gen()),
+            right_eye: Some(rng.gen()),
+            left_ear: Some(rng.gen()),
+            right_ear: Some(rng.gen()),
+            left_shoulder: Some(rng.gen()),
+            right_shoulder: Some(rng.gen()),
+            left_elbow: Some(rng.gen()),
+            right_elbow: Some(rng.gen()),
+            left_wrist: Some(rng.gen()),
+            right_wrist: Some(rng.gen()),
+            left_hip: Some(rng.gen()),
+            right_hip: Some(rng.gen()),
+            left_knee: Some(rng.gen()),
+            right_knee: Some(rng.gen()),
+            left_ankle: Some(rng.gen()),
+            right_ankle: Some(rng.gen()),
+            score: rng.gen(),
+        }
+    }
+}
+
+impl Distribution<Pose3D> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Pose3D {
+        Pose3D {
+            nose: Some(rng.gen()),
+            left_eye: Some(rng.gen()),
+            right_eye: Some(rng.gen()),
+            left_ear: Some(rng.gen()),
+            right_ear: Some(rng.gen()),
+            left_shoulder: Some(rng.gen()),
+            right_shoulder: Some(rng.gen()),
+            left_elbow: Some(rng.gen()),
+            right_elbow: Some(rng.gen()),
+            left_wrist: Some(rng.gen()),
+            right_wrist: Some(rng.gen()),
+            left_hip: Some(rng.gen()),
+            right_hip: Some(rng.gen()),
+            left_knee: Some(rng.gen()),
+            right_knee: Some(rng.gen()),
+            left_ankle: Some(rng.gen()),
+            right_ankle: Some(rng.gen()),
+            score: rng.gen(),
+        }
+    }
+}
+
+impl From<image::DynamicImage> for ImageData {
+    fn from(img: image::DynamicImage) -> Self {
+        let rgb_img = img.to_rgb8();
+        let (width, height) = rgb_img.dimensions();
+        Self {
+            width,
+            height,
+            data: rgb_img.into_raw(),
+        }
+    }
+}
+
+impl ImageData {
+    /// Read image from file
+    pub fn from_path(image_path: &Path) -> Result<Self, Box<dyn Error>> {
+        Ok(image::open(image_path)?.into())
+    }
+}
+
+impl Distribution<ImageData> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> ImageData {
+        let width: usize = 30;
+        let height: usize = 10;
+        let num_pixels = width * height;
+        // Three channels: (R, G, B) for each pixel
+        let num_bytes = 3 * num_pixels;
+
+        ImageData {
+            width: width.try_into().unwrap(),
+            height: height.try_into().unwrap(),
+            data: (0..num_bytes).map(|_| rng.gen()).collect(),
+        }
+    }
+}
+
+impl From<AnonymousCameraInfo> for CameraInfo {
+    /// Convert an anonymous camera to a named camera with an empty name
+    fn from(anon: AnonymousCameraInfo) -> Self {
+        Self {
+            camera_name: String::new(),
+            group_name: String::new(),
+            extrinsics: anon.extrinsics,
+            intrinsics: anon.intrinsics,
         }
     }
 }

@@ -1,18 +1,16 @@
 use futures::future;
-use nalgebra::{Matrix3x4, Point3};
+use nalgebra::Matrix3x4;
+use rand::Rng;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use posenet_vr_hub::triangulator::triangulate_from_poses_and_camera_matrices;
-use posenet_vr_hub::grpc::client::random_pose;
-use posenet_vr_hub::grpc::server::LabeledPoses2D;
 use posenet_vr_hub::grpc::proto::Pose3D;
+use posenet_vr_hub::triangulator::triangulate_from_poses_and_camera_matrices;
 
 fn randomly_triangulate() -> Pose3D {
+    let mut rng = rand::thread_rng();
     let num_cameras = 5;
-    let poses = (0..num_cameras)
-        .map(|_| random_pose())
-        .collect();
+    let poses = (0..num_cameras).map(|_| rng.gen()).collect();
     let camera_matrices = (0..num_cameras).map(|_| Matrix3x4::new_random()).collect();
     return triangulate_from_poses_and_camera_matrices(poses, camera_matrices);
 }

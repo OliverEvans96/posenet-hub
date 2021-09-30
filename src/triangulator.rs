@@ -1,15 +1,15 @@
 use async_std::channel;
-use nalgebra::{Matrix3x4, Matrix3, Point2, Point3};
+use nalgebra::{Matrix3, Matrix3x4, Point2, Point3};
 use std::sync::{Arc, RwLock};
-use std::{collections::HashMap, time::Duration};
 use std::time::Instant;
+use std::{collections::HashMap, time::Duration};
 
 use tokio::{sync::broadcast, time::sleep, try_join};
 
+use crate::controller::BoxError;
 use crate::grpc::proto::{CameraInfo, Pose2D, Pose3D, SPoint2, SPoint3};
-use crate::grpc::server::{LabeledPoses2D};
-use crate::controller::{BoxError};
-use crate::openmvg::openmvg::{triangulate_many};
+use crate::grpc::server::LabeledPoses2D;
+use crate::openmvg::openmvg::triangulate_many;
 use crate::utils::transpose_vecvec;
 
 #[derive(Debug, Clone)]
@@ -25,7 +25,7 @@ pub struct TriangulatorConfig {
 pub struct LabeledPoses3D {
     pub group_name: String,
     pub poses: Vec<Pose3D>,
-    pub time: Instant
+    pub time: Instant,
 }
 
 pub struct CameraState {
@@ -52,44 +52,62 @@ fn collect_points_by_keypoint(poses: Vec<Pose2D>) -> Vec<Vec<SPoint2>> {
         .map(|pose| {
             let (points, score) = pose.into();
             points
-        }).collect();
+        })
+        .collect();
     // x[i][j] is the coorinates of keypoint i as seen from camera j
     let points_grouped_by_keypoint = transpose_vecvec(&points_grouped_by_camera);
     points_grouped_by_keypoint
 }
 
+pub fn calculate_camera_matrix(info: &CameraInfo) -> Option<Matrix3x4<f64>> {
+    let intrinsics = info.intrinsics.as_ref()?;
+    let extrinsics = info.extrinsics.as_ref()?;
+
+    let c = &intrinsics.camera_matrix;
+    let k = Matrix3::new(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8]);
+
+    let v = &extrinsics.view_matrix;
+    let rt = Matrix3x4::new(
+        v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11],
+    );
+
+    let p = k * rt;
+    Some(p)
+}
+
+
 pub fn triangulate_from_poses_and_camera_matrices(
     poses: Vec<Pose2D>,
-    camera_matrices: Vec<Matrix3x4<f64>>,
+    camera_matrices: &[Matrix3x4<f64>],
 ) -> Pose3D {
-
     // Aggregate 2D pose scores by multiplying, TODO better way?
-    let pose_score = poses.iter()
-        .fold(1.0, |total, pose| total * pose.score);
+    let pose_score = poses.iter().fold(1.0, |total, pose| total * pose.score);
 
     // Rearrange 2D points grouped by keypoint
     let keypoints = collect_points_by_keypoint(poses);
 
     // Aggregate 2D point scores by multiplying, TODO better way?
-    let keypoint_scores: Vec<f64> = keypoints.iter()
-        .map(|ks| ks.iter()
-            .fold(1.0, |total, (p,score)| total * score)
-        ).collect();
+    let keypoint_scores: Vec<f64> = keypoints
+        .iter()
+        .map(|ks| ks.iter().fold(1.0, |total, (p, score)| total * score))
+        .collect();
 
     // Reconstruct the 3D points
-    let points2d: Vec<Vec<Point2<f64>>> = keypoints.into_iter()
-        .map(|ks| ks.into_iter()
-            .map(|(p,s)| p).collect()
-        ).collect();
-    let points3d = triangulate_many(&points2d, &camera_matrices);
+    let points2d: Vec<Vec<Point2<f64>>> = keypoints
+        .into_iter()
+        .map(|ks| ks.into_iter().map(|(p, s)| p).collect())
+        .collect();
+    let points3d = triangulate_many(&points2d, camera_matrices);
 
     // Pose3D from 3D points
-    let scored_points3d = points3d.into_iter().zip(keypoint_scores.into_iter()).collect();
+    let scored_points3d = points3d
+        .into_iter()
+        .zip(keypoint_scores.into_iter())
+        .collect();
     (scored_points3d, pose_score).into()
 }
 
 // pub fn score_from_poses(poses: Vec<Pose2D>, pose3d: Pose3D)
-
 
 pub struct Triangulator {
     config: TriangulatorConfig,
@@ -121,52 +139,60 @@ impl Triangulator {
     }
 
     pub async fn run(&self) -> Result<(), BoxError> {
-        try_join!(self.listen_for_poses(), self.listen_for_cameras(), self.triangulate())?;
+        try_join!(
+            self.listen_for_poses(),
+            self.listen_for_cameras(),
+            self.triangulate()
+        )?;
         Ok(())
     }
-    
+
     pub async fn triangulate(&self) -> Result<(), BoxError> {
-        let mut i:i32 = 0;
-        let mut count:i32 = 0;
+        let mut i: i32 = 0;
+        let mut count: i32 = 0;
         loop {
             // Get current poses
             let current = self.get_current_poses();
-    
+
             // Group by user
             let users = self.group_poses_and_cameras_by_user(current);
             for (i, (poses, camera_matrices)) in users.into_iter().enumerate() {
-
                 // See if we have enough cameras to proceed
                 if camera_matrices.len() >= self.config.min_cameras {
                     // Reconstruct the 3D points
-                    let points3d = triangulate_from_poses_and_camera_matrices(poses, camera_matrices);
+                    let points3d =
+                        triangulate_from_poses_and_camera_matrices(poses, &camera_matrices);
                     let pose3d = points3d.into();
                     // let scored_pose3d = score_from_poses(poses, pose3d);
 
                     // Send 3D points to VRPN
-                    self.poses3d_tx.send(LabeledPoses3D{
-                        group_name: self.group_name.clone(),
-                        poses: vec![pose3d],
-                        time: Instant::now() 
-                    }).unwrap();
+                    self.poses3d_tx
+                        .send(LabeledPoses3D {
+                            group_name: self.group_name.clone(),
+                            poses: vec![pose3d],
+                            time: Instant::now(),
+                        })
+                        .unwrap();
                     count += 1;
                 } else {
                     // Otherwise, tell VRPN there are no new poses
-                    self.poses3d_tx.send(LabeledPoses3D{
-                        group_name: self.group_name.clone(),
-                        poses: Vec::new(),
-                        time: Instant::now() 
-                    }).unwrap();
+                    self.poses3d_tx
+                        .send(LabeledPoses3D {
+                            group_name: self.group_name.clone(),
+                            poses: Vec::new(),
+                            time: Instant::now(),
+                        })
+                        .unwrap();
                 }
-
-
             }
-            
-
 
             i = i % 100 + 1;
-            if i == 1 && count > 0 { 
-                println!("Generated 3D pose count for {} --> {}", self.group_name.clone() + ".pose0", count);
+            if i == 1 && count > 0 {
+                println!(
+                    "Generated 3D pose count for {} --> {}",
+                    self.group_name.clone() + ".pose0",
+                    count
+                );
                 count = 0;
             }
 
@@ -188,12 +214,17 @@ impl Triangulator {
     async fn listen_for_cameras(&self) -> Result<(), BoxError> {
         loop {
             let camera = self.cameras_rx.recv().await?;
-            let matrix = self.calculate_camera_matrix(&camera).expect("error in calculate camera matrix");
+            let matrix = calculate_camera_matrix(&camera)
+                .expect("error in calculate camera matrix");
             let state = CameraState {
                 info: camera,
-                matrix
+                matrix,
             };
-            println!("New camera --> {}:{}", state.info.group_name.clone(), state.info.camera_name.clone());
+            println!(
+                "New camera --> {}:{}",
+                state.info.group_name.clone(),
+                state.info.camera_name.clone()
+            );
             self.cameras
                 .write()
                 .expect("cameras_hm lock poisoned!")
@@ -211,35 +242,29 @@ impl Triangulator {
             .collect::<Vec<_>>()
     }
 
-    fn get_pose_for_user(&self, pose:&LabeledPoses2D, user_id:usize) -> Option<Pose2D> {
+    fn get_pose_for_user(&self, pose: &LabeledPoses2D, user_id: usize) -> Option<Pose2D> {
         // TODO identify user somehow, so that poses from different cameras can be grouped
         // delta from previous frames? or use image data somehow, facial recognition?
         // for now just returned in order sent from client, may be glitchy for multiple tracked users
         Some(pose.poses[user_id].clone()) //.iter().nth(user_id)
     }
 
-    fn group_poses_and_cameras_by_user(&self, poses: Vec<LabeledPoses2D>) -> Vec<(Vec<Pose2D>, Vec<Matrix3x4<f64>>)> {
+    fn group_poses_and_cameras_by_user(
+        &self,
+        poses: Vec<LabeledPoses2D>,
+    ) -> Vec<(Vec<Pose2D>, Vec<Matrix3x4<f64>>)> {
         let max_users = 1; // limit to 1 user for now
-        (0..max_users).map(|id| {
-            // TODO handle missing poses, and remove corresponding camera matrix
-            let user_poses = (&poses).into_iter().map(|labeled| self.get_pose_for_user(labeled, id).unwrap() ).collect(); 
-            let camera_matrices = self.get_cameras_for_poses(&poses);
-            (user_poses, camera_matrices)
-        }).collect()
-    }
-
-    fn calculate_camera_matrix(&self, info: &CameraInfo) -> Option<Matrix3x4<f64>> {
-        let intrinsics = info.intrinsics.as_ref()?;
-        let extrinsics = info.extrinsics.as_ref()?;
-
-        let c = &intrinsics.camera_matrix;
-        let k = Matrix3::new(c[0],c[1],c[2],c[3],c[4],c[5],c[6],c[7],c[8]);
-
-        let v = &extrinsics.view_matrix;
-        let rt = Matrix3x4::new(v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8],v[9],v[10],v[11]);
-
-        let p = k * rt;
-        Some(p)
+        (0..max_users)
+            .map(|id| {
+                // TODO handle missing poses, and remove corresponding camera matrix
+                let user_poses = (&poses)
+                    .into_iter()
+                    .map(|labeled| self.get_pose_for_user(labeled, id).unwrap())
+                    .collect();
+                let camera_matrices = self.get_cameras_for_poses(&poses);
+                (user_poses, camera_matrices)
+            })
+            .collect()
     }
 
     fn get_camera_matrix(&self, name: &str) -> Option<Matrix3x4<f64>> {
@@ -249,9 +274,12 @@ impl Triangulator {
     }
 
     fn get_cameras_for_poses(&self, poses: &[LabeledPoses2D]) -> Vec<Matrix3x4<f64>> {
-        poses.iter().map(|pose| {
-            self.get_camera_matrix(&pose.camera_name)
-                .expect("Error while getting camera matrix")
-        }).collect()
+        poses
+            .iter()
+            .map(|pose| {
+                self.get_camera_matrix(&pose.camera_name)
+                    .expect("Error while getting camera matrix")
+            })
+            .collect()
     }
 }

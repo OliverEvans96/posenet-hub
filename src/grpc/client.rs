@@ -1,8 +1,9 @@
 use async_std;
-use rand::{thread_rng, Rng};
 use rand::distributions::Alphanumeric;
-use std::iter;
+use rand::prelude::ThreadRng;
+use rand::{thread_rng, Rng};
 use std::error::Error;
+use std::time::SystemTime;
 use tokio::{
     join,
     time::{sleep, Duration},
@@ -10,150 +11,76 @@ use tokio::{
 use tonic::{transport::Channel, Request};
 
 use super::proto::hub_service_client::HubServiceClient;
-use super::proto::{CameraExtrinsics, CameraIntrinsics, CameraInfo};
-use super::proto::{Point2D, Pose2D, Pose2DMessage};
+use super::proto::{CameraExtrinsics, CameraInfo, CameraIntrinsics};
+use super::proto::{
+    CameraSnapshotRequest, CameraSnapshotResponse, ServerSnapshotRequest, ServerSnapshotResponse,
+    SnapshotClientOffer,
+};
+use super::proto::{ImageData, Pose2DImageMessage, Pose2DMessage};
 
-pub async fn hello(client: &mut HubServiceClient<Channel>, group_name: &str) -> Result<String, Box<dyn Error>> {
+pub async fn hello(
+    client: &mut HubServiceClient<Channel>,
+    group_name: String,
+) -> Result<String, Box<dyn Error>> {
     let mut rng = thread_rng();
-    let name = &generate_name();
+    let name = generate_name();
     let camera_info = CameraInfo {
         intrinsics: Some(CameraIntrinsics {
-            camera_matrix: vec![100.0,0.0,0.0,0.0,100.0,0.0,0.0,0.0,100.0],
-            distortion: vec![0.0,0.0,0.0,0.0,0.0],
-            rms_error: 0.0
+            camera_matrix: vec![100.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 100.0],
+            distortion: vec![0.0, 0.0, 0.0, 0.0, 0.0],
+            rms_error: 0.0,
         }),
         extrinsics: Some(CameraExtrinsics {
-            view_matrix: vec![1.0,0.0,0.0,rng.gen(),0.0,1.0,0.0,rng.gen(),0.0,0.0,1.0,rng.gen()]
+            view_matrix: vec![
+                1.0,
+                0.0,
+                0.0,
+                rng.gen(),
+                0.0,
+                1.0,
+                0.0,
+                rng.gen(),
+                0.0,
+                0.0,
+                1.0,
+                rng.gen(),
+            ],
         }),
-        group_name: group_name.to_string(), 
-        camera_name: name.to_string()
+        group_name: group_name,
+        camera_name: name.clone(),
     };
     println!("Camera Info: {:?}", camera_info);
 
     let request = Request::new(camera_info);
-    let response_promise = client.hello(request);
-    println!("Message sent.");
-
-    let response = response_promise.await?;
+    println!("Sending request");
+    let response = client.hello(request).await?;
     let message = response.into_inner();
     println!("Reply received: {:?}", message);
-    Ok(name.to_string())
+    Ok(name)
 }
 
 fn generate_name() -> String {
-  // From https://docs.rs/rand/0.8.2/rand/distributions/struct.Alphanumeric.html
-  let mut rng = thread_rng();
-  iter::repeat(())
-      .map(|()| rng.sample(Alphanumeric))
-      .map(char::from)
-      .take(7)
-      .collect()
-}
-
-pub fn random_pose() -> Pose2D {
-    let mut rng = thread_rng();
-    Pose2D {
-        nose: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_eye: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_eye: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_ear: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_ear: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_shoulder: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_shoulder: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_elbow: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_elbow: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_wrist: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_wrist: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_hip: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_hip: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_knee: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_knee: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        left_ankle: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        right_ankle: Some(Point2D {
-            x: rng.gen(),
-            y: rng.gen(),
-            score: 1.0
-        }),
-        score: 1.0
-    }
+    // From https://docs.rs/rand/0.8.2/rand/distributions/struct.Alphanumeric.html
+    let rng = thread_rng();
+    rng.sample_iter(Alphanumeric)
+        .map(char::from)
+        .take(7)
+        .collect()
 }
 
 pub async fn stream_inner(
-    group_name: &str,
-    camera_name: &str,
+    group_name: String,
+    camera_name: String,
     tx: async_std::channel::Sender<Pose2DMessage>,
+    rng: &mut ThreadRng,
 ) -> Result<(), Box<dyn Error>> {
     let nposes: u32 = 1000;
     for i in 0..nposes {
         println!("Sending pose {}", i);
         let pose_message = Pose2DMessage {
-            group_name: group_name.to_string(),
-            camera_name: camera_name.to_string(),
-            poses: vec![random_pose()],
+            group_name: group_name.clone(),
+            camera_name: camera_name.clone(),
+            poses: vec![rng.gen()],
         };
 
         tx.try_send(pose_message)?;
@@ -168,18 +95,106 @@ pub async fn stream_inner(
 
 pub async fn stream_poses(
     client: &mut HubServiceClient<Channel>,
-    group_name: &str,
-    camera_name: &str
+    group_name: String,
+    camera_name: String,
 ) -> Result<(), Box<dyn Error>> {
+    let mut rng = thread_rng();
     let buf_size = 10;
     let (tx, rx) = async_std::channel::bounded::<Pose2DMessage>(buf_size);
     let request = Request::new(rx);
     println!("Sending request");
     let response_future = client.stream_poses(request);
-    let stream_future = stream_inner(group_name, camera_name, tx);
+    let stream_future = stream_inner(group_name, camera_name, tx, &mut rng);
     let (stream_result, response_result) = join!(stream_future, response_future);
     stream_result?;
     println!("Got response: {:#?}", response_result?);
 
     Ok(())
+}
+
+async fn handle_camera_snapshot_request(
+    client: &mut HubServiceClient<Channel>,
+    request: CameraSnapshotRequest,
+    group_name: String,
+    camera_name: String,
+    image_data: Option<ImageData>,
+) -> Result<(), Box<dyn Error>> {
+    log::info!("Handling snapshot request '{}'", &request.snapshot_id);
+
+    let mut rng = thread_rng();
+
+    // Construct response
+    let image_message = Pose2DImageMessage {
+        // Need to clone strings each time we loop
+        group_name: group_name.clone(),
+        camera_name: camera_name.clone(),
+        poses: vec![rng.gen()],
+        image: image_data.or_else(|| Some(rng.gen())),
+        timestamp: Some(SystemTime::now().into()),
+    };
+
+    let snapshot_response = CameraSnapshotResponse {
+        snapshot_id: request.snapshot_id.clone(),
+        message: Some(image_message),
+    };
+
+    // Send snapshot to server
+    client
+        .send_snapshot(Request::new(snapshot_response))
+        .await?;
+
+    log::info!(
+        "Finished handling snapshot request '{}'",
+        request.snapshot_id
+    );
+
+    Ok(())
+}
+
+/// Offer fake snapshots, with the option
+/// to send a predefined image instead of
+/// random RGB values.
+pub async fn offer_snapshots(
+    client: &mut HubServiceClient<Channel>,
+    group_name: String,
+    image_data: Option<ImageData>,
+) -> Result<(), Box<dyn Error>> {
+    // TODO: More logging
+    let camera_name = generate_name();
+
+    // Construct offer
+    let offer = SnapshotClientOffer {
+        group_name: group_name.clone(),
+        camera_name: camera_name.clone(),
+    };
+
+    // Send offer and get stream handle from server
+    let mut stream = client
+        .wait_for_snapshot_request(Request::new(offer))
+        .await?
+        .into_inner();
+
+    // Iterate over snapshot requests
+    while let Some(snapshot_request) = stream.message().await? {
+        // TODO: Use server timestamp somehow?
+        handle_camera_snapshot_request(
+            client,
+            snapshot_request,
+            group_name.clone(),
+            camera_name.clone(),
+            image_data.clone(),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn get_snapshots(
+    client: &mut HubServiceClient<Channel>,
+    group_name: String,
+) -> Result<ServerSnapshotResponse, Box<dyn Error>> {
+    let request = ServerSnapshotRequest { group_name };
+    let response = client.get_snapshots(request).await?.into_inner();
+    Ok(response)
 }
