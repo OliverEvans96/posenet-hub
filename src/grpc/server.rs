@@ -4,6 +4,7 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use std::{error::Error, net::SocketAddr};
+use tokio::select;
 use tokio::sync::RwLock;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 use uuid::Uuid;
@@ -18,16 +19,17 @@ use super::proto::{
 pub struct HubServer {
     cameras_tx: channel::Sender<CameraInfo>,
     poses2d_tx: channel::Sender<LabeledPoses2D>,
-    // snapshot request stream channel senders,
-    // indexed by group name, then camera name
-    // TODO: Is this the right place to store this?
-    // or should we send somewhere else to store?
+    /// snapshot request stream channel senders,
+    /// indexed by group name, then camera name
+    ///
+    /// TODO: Is this the right place to store this?
+    /// or should we send somewhere else to store?
     snapshot_offers: RwLock<
         HashMap<String, HashMap<String, channel::Sender<Result<CameraSnapshotRequest, Status>>>>,
     >,
-    // store snapshot from cameras as they come in,
-    // before sending to client once they all arrive (or timeout)
-    snapshot_buffers: RwLock<HashMap<String, Vec<Pose2DImageMessage>>>,
+    /// Channels where incoming snapshots can be placed between
+    /// get-snapshots request and response.
+    snapshot_channels: RwLock<HashMap<String, channel::Sender<Pose2DImageMessage>>>,
 }
 
 #[derive(Debug)]
@@ -133,15 +135,20 @@ impl HubService for HubServer {
                 // Activate lock to gain thread-safe, mutable access to shared data
                 // (this rpc could be called multiple times simultaneously)
                 // TODO: Don't need to lock whole snapshots_hm, just the inner HM for this snapshot group
-                let mut snapshots_hm = self.snapshot_buffers.write().await;
+                let channels_hm = self.snapshot_channels.read().await;
 
                 // Get HashMap existing for group if it exists, otherwise create a new one
-                if let Some(snapshots) = snapshots_hm.get_mut(&snapshot_id) {
-                    snapshots.push(message);
+                if let Some(sender) = channels_hm.get(&snapshot_id) {
+                    if let Err(err) = sender.send(message).await {
+                        return Err(Status::unknown(format!(
+                            "Failed to send on snapshot channel: {}",
+                            err
+                        )));
+                    }
                 } else {
                     // Oops - snapshot_id group didn't exist - maybe we're too late or got a bad snapshot_id?
                     return Err(Status::not_found(format!(
-                        "No existing buffer for snapshot_id = {}",
+                        "No existing chanel for snapshot_id = {}",
                         &snapshot_id
                     )));
                 }
@@ -164,89 +171,118 @@ impl HubService for HubServer {
         &self,
         request: tonic::Request<super::proto::ServerSnapshotRequest>,
     ) -> Result<tonic::Response<super::proto::ServerSnapshotResponse>, tonic::Status> {
-        match request.into_inner() {
-            ServerSnapshotRequest { group_name } => {
-                let snapshot_id = Uuid::new_v4().to_string();
+        let ServerSnapshotRequest { group_name } = request.into_inner();
+        let snapshot_id = Uuid::new_v4().to_string();
 
-                let (camera_names, send_results) = {
-                    let all_offers = self.snapshot_offers.read().await;
-                    // Look up all outstanding offers for the requested group
-                    if let Some(group_offers) = all_offers.get(&group_name) {
-                        let camera_request = CameraSnapshotRequest {
-                            // TODO: Can snapshot_id be passed by reference?
-                            snapshot_id: snapshot_id.clone(),
-                            timestamp: Some(SystemTime::now().into()),
-                        };
+        // TODO: oh boy, clean this up.
+        // let (camera_names, send_results, rx) = {
 
-                        let (camera_names, offer_txs): (Vec<_>, Vec<_>) =
-                            group_offers.iter().unzip();
+        // Introduce new scope here to drop RwLock on snapshot_offers ASAP
+        let (camera_names, send_results, rx) = {
+            let all_offers = self.snapshot_offers.read().await;
 
-                        // Allocate buffer for snapshot_id before requesting
-                        let num_offers = camera_names.len();
-                        {
-                            let mut all_buffers = self.snapshot_buffers.write().await;
-                            all_buffers.insert(snapshot_id.clone(), Vec::with_capacity(num_offers));
+            // Look up all outstanding offers for the requested group
+            let group_offers = all_offers
+                .get(&group_name)
+                .ok_or(tonic::Status::unavailable(format!(
+                    "No outstanding snapshot offers for group {}",
+                    group_name
+                )))?;
+            let camera_request = CameraSnapshotRequest {
+                // TODO: Can snapshot_id be passed by reference?
+                snapshot_id: snapshot_id.clone(),
+                timestamp: Some(SystemTime::now().into()),
+            };
+
+            let (camera_names, offer_txs): (Vec<_>, Vec<_>) = group_offers.iter().unzip();
+
+            // Create channel for snapshot_id before requesting
+            let num_offers = camera_names.len();
+            let (tx, rx) = channel::bounded(num_offers);
+            {
+                let mut all_channels = self.snapshot_channels.write().await;
+                all_channels.insert(snapshot_id.clone(), tx);
+            }
+
+            // Send requests to relevant cameras & get futures
+            // TODO: Is it necessary to clone camera_request? Can it be passed by reference?
+            let send_futures: Vec<_> = offer_txs
+                .iter()
+                .map(|tx| tx.send(Ok(camera_request.clone())))
+                .collect();
+
+            // Copy camera names so that we can drop the read lock on self.snapshot_offers
+            let cloned_camera_names: Vec<_> = camera_names.into_iter().cloned().collect();
+
+            // Await futures to actually launch send tasks
+            let send_results = join_all(send_futures).await;
+
+            (cloned_camera_names, send_results, rx)
+        };
+
+        let num_offers = camera_names.len();
+
+        // Log error if any requests failed to send
+        for (send_result, camera_name) in send_results.iter().zip(camera_names) {
+            if let Err(send_err) = send_result {
+                log::warn!(
+                    "Sending snapshot request to camera '{}' failed: {:?}",
+                    camera_name,
+                    send_err
+                );
+            }
+        }
+
+        if send_results.len() > 0 {
+            let mut camera_responses = vec![];
+
+            async fn collect_poses(
+                rx: channel::Receiver<Pose2DImageMessage>,
+                vec: &mut Vec<Pose2DImageMessage>,
+                num_poses: usize,
+            ) {
+                // TODO: Wait until closed, or
+                for _ in 0..num_poses {
+                    match rx.recv().await {
+                        Ok(pose) => vec.push(pose),
+                        Err(err) => {
+                            log::error!("Error while collecting poses from channel: {}", err)
                         }
-
-                        // Send requests to relevant cameras & get futures
-                        // TODO: Is it necessary to clone camera_request? Can it be passed by reference?
-                        let send_futures: Vec<_> = offer_txs
-                            .iter()
-                            .map(|tx| tx.send(Ok(camera_request.clone())))
-                            .collect();
-
-                        // Copy camera names so that we can drop the read lock on self.snapshot_offers
-                        let cloned_camera_names = camera_names.into_iter().cloned().collect();
-
-                        // Await futures to actually launch send tasks
-                        let send_results = join_all(send_futures).await;
-
-                        (cloned_camera_names, send_results)
-                    } else {
-                        (vec![], vec![])
                     }
-                };
-
-                // Log error if any requests failed to send
-                for (send_result, camera_name) in send_results.iter().zip(camera_names) {
-                    if let Err(send_err) = send_result {
-                        log::warn!(
-                            "Sending snapshot request to camera '{}' failed: {:?}",
-                            camera_name,
-                            send_err
-                        );
-                    }
-                }
-
-                if send_results.len() > 0 {
-                    // TODO: How to know when buffer is full without just waiting for timeout?
-                    let timeout = Duration::from_secs(3);
-                    tokio::time::sleep(timeout).await;
-                    let maybe_camera_responses = {
-                        let mut buffers_hm = self.snapshot_buffers.write().await;
-                        buffers_hm.remove(&snapshot_id)
-                    };
-
-                    if let Some(camera_responses) = maybe_camera_responses {
-                        let response = ServerSnapshotResponse {
-                            snapshot_id,
-                            // TODO: need to pass ownership here
-                            messages: camera_responses,
-                        };
-                        Ok(tonic::Response::new(response))
-                    } else {
-                        // TODO: Is this the right status?
-                        Err(Status::not_found(
-                            "Received no snapshot responses from cameras before timeout",
-                        ))
-                    }
-                } else {
-                    Err(Status::not_found(format!(
-                        "No outstanding snapshot offers for the requested group {}",
-                        group_name
-                    )))
                 }
             }
+
+            // Collect as many poses as possible before the timeout,
+            // returning early if we get as many as expected.
+            let timeout = Duration::from_secs(3);
+            select! {
+                _ = collect_poses(rx, &mut camera_responses, num_offers) => {},
+                _ = tokio::time::sleep(timeout) => {},
+            }
+
+            // Remove channel
+            {
+                let mut channels_hm = self.snapshot_channels.write().await;
+                channels_hm.remove(&snapshot_id)
+            };
+
+            if camera_responses.len() > 0 {
+                let response = ServerSnapshotResponse {
+                    snapshot_id,
+                    messages: camera_responses,
+                };
+                Ok(tonic::Response::new(response))
+            } else {
+                // TODO: Is this the right status?
+                Err(Status::not_found(
+                    "Received no snapshot responses from cameras before timeout",
+                ))
+            }
+        } else {
+            Err(Status::not_found(format!(
+                "No outstanding snapshot offers for the requested group {}",
+                group_name
+            )))
         }
     }
 
@@ -365,7 +401,7 @@ impl GrpcServer {
             cameras_tx: self.cameras_tx,
             poses2d_tx: self.poses2d_tx,
             snapshot_offers: RwLock::new(HashMap::new()),
-            snapshot_buffers: RwLock::new(HashMap::new()),
+            snapshot_channels: RwLock::new(HashMap::new()),
         };
 
         Server::builder()
