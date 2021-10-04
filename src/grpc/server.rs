@@ -169,6 +169,8 @@ impl HubService for HubServer {
         let ServerSnapshotRequest { group_name } = request.into_inner();
         let snapshot_id = Uuid::new_v4().to_string();
 
+        log::info!("Snapshot request {}", snapshot_id);
+
         // TODO: oh boy, clean this up.
         // let (camera_names, send_results, rx) = {
 
@@ -298,6 +300,8 @@ impl HubService for HubServer {
         let mut cameras = Vec::<CameraInfo>::new();
         let mut poses_by_subject = Vec::new();
 
+        log::info!("Got triangulate request");
+
         let (tx, rx) = channel::unbounded();
 
         let mut i: u8 = 0;
@@ -350,6 +354,8 @@ impl HubService for HubServer {
                 "Failed to return streaming poses",
             )))?;
         }
+
+        log::info!("Finished triangulate request");
 
         // Return receiver to client
         // NOTE: channel happens to already have been populated
