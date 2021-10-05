@@ -12,8 +12,8 @@ use uuid::Uuid;
 use super::proto::hub_service_server::{HubService, HubServiceServer};
 use super::proto::{
     CameraInfo, CameraSnapshotRequest, CameraSnapshotResponse, Empty, HelloResponse, Pose2D,
-    Pose2DImageMessage, Pose2DMessage, Pose3D, ServerSnapshotRequest, ServerSnapshotResponse,
-    SnapshotClientOffer, TriangulationRequest,
+    Pose2DImageMessage, Pose2DMessage, ServerSnapshotRequest, ServerSnapshotResponse,
+    SnapshotClientOffer, TriangulationRequest, TriangulationResponse,
 };
 
 pub struct HubServer {
@@ -50,7 +50,6 @@ pub struct LabeledPoses2D {
 impl HubService for HubServer {
     // type WaitForSnapshotRequestStream = ReceiverStream<Result<CameraSnapshotRequest, Status>>;
     type WaitForSnapshotRequestStream = channel::Receiver<Result<CameraSnapshotRequest, Status>>;
-    type TriangulateStream = channel::Receiver<Result<Pose3D, Status>>;
 
     async fn hello(&self, request: Request<CameraInfo>) -> Result<Response<HelloResponse>, Status> {
         let info = request.into_inner();
@@ -293,7 +292,7 @@ impl HubService for HubServer {
     async fn triangulate(
         &self,
         request: tonic::Request<tonic::Streaming<super::proto::TriangulationRequest>>,
-    ) -> Result<tonic::Response<Self::TriangulateStream>, tonic::Status> {
+    ) -> Result<tonic::Response<super::proto::TriangulationResponse>, tonic::Status> {
         use crate::triangulator;
         // Collect all poses until client stops streaming
         let mut stream = request.into_inner();
@@ -301,8 +300,6 @@ impl HubService for HubServer {
         let mut poses_by_subject = Vec::new();
 
         log::info!("Got triangulate request");
-
-        let (tx, rx) = channel::unbounded();
 
         let mut i: u8 = 0;
         while let Some(viewpoint) = stream.message().await? {
@@ -344,24 +341,17 @@ impl HubService for HubServer {
                 "Not all required camera info was provided.",
             ))?;
 
-        // Triangulate and stream 3d poses back to client
-        for poses in poses_by_subject {
-            let pose3d =
-                triangulator::triangulate_from_poses_and_camera_matrices(poses, &camera_matrices);
-            // NOTE: Awaiting sequentially to make sure
-            // we return the poses in the correct order
-            tx.send(Ok(pose3d)).await.or(Err(tonic::Status::unknown(
-                "Failed to return streaming poses",
-            )))?;
-        }
+        let poses3d = poses_by_subject.into_iter().map(|poses| {
+            triangulator::triangulate_from_poses_and_camera_matrices(poses, &camera_matrices)
+        });
+
+        let response = TriangulationResponse {
+            poses: poses3d.collect(),
+        };
 
         log::info!("Finished triangulate request");
 
-        // Return receiver to client
-        // NOTE: channel happens to already have been populated
-        // in this scenario, but in general, more items
-        // could be streamed later by keeping `tx` handy
-        Ok(tonic::Response::new(rx))
+        Ok(Response::new(response))
     }
 }
 
