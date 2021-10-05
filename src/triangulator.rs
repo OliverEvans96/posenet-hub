@@ -1,5 +1,6 @@
 use async_std::channel;
 use nalgebra::{Matrix3, Matrix3x4, Point2, Point3};
+use std::cmp;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use std::{collections::HashMap, time::Duration};
@@ -75,21 +76,25 @@ pub fn calculate_camera_matrix(info: &CameraInfo) -> Option<Matrix3x4<f64>> {
     Some(p)
 }
 
-
 pub fn triangulate_from_poses_and_camera_matrices(
     poses: Vec<Pose2D>,
     camera_matrices: &[Matrix3x4<f64>],
 ) -> Pose3D {
-    // Aggregate 2D pose scores by multiplying, TODO better way?
-    let pose_score = poses.iter().fold(1.0, |total, pose| total * pose.score);
+    // Aggregate 2D pose scores by minimum, TODO better way?
+    let pose_score = poses
+        .iter()
+        .fold(1.0, |total, pose| f64::min(total, pose.score));
 
     // Rearrange 2D points grouped by keypoint
     let keypoints = collect_points_by_keypoint(poses);
 
-    // Aggregate 2D point scores by multiplying, TODO better way?
+    // Aggregate 2D point scores by minimum, TODO better way?
     let keypoint_scores: Vec<f64> = keypoints
         .iter()
-        .map(|ks| ks.iter().fold(1.0, |total, (p, score)| total * score))
+        .map(|ks| {
+            ks.iter()
+                .fold(1.0, |total, (p, score)| f64::min(total, *score))
+        })
         .collect();
 
     // Reconstruct the 3D points
