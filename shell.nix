@@ -6,10 +6,18 @@ let
     '';
   });
   myOpenMVG =  openmvg.overrideAttrs (oldAttrs: rec {
-    cmakeFlags = (
-      [ "-DOpenMVG_BUILD_SHARED=ON" ]
-      ++ oldAttrs.cmakeFlags
-    );
+    # Mimic cpp-deps.Dockerfile
+    cmakeFlags = ([
+      "-DOpenMVG_BUILD_TYPE=RELEASE"
+      "-DOpenMVG_BUILD_SHARED=ON"
+      "-DOpenMVG_BUILD_DOC=OFF"
+      "-DOpenMVG_BUILD_EXAMPLES=OFF"
+      "-DOpenMVG_BUILD_GUI_SOFTWARES=OFF"
+      "-DOpenMVG_BUILD_SOFTWARES=OFF"
+      "-DOpenMVG_USE_OPENMP=OFF"
+      "-DUSE_OPENMP=OFF"
+      "-DTARGET_ARCHITECTURE=generic"
+    ] ++ oldAttrs.cmakeFlags);
   });
 in
 stdenv.mkDerivation {
