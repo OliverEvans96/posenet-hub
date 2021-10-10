@@ -13,59 +13,6 @@ unique_ptr<Vec4> triangulate_nview(
     return X;
 }
 
-// void linf_bundle_adjustment(
-//     // 2 x N matrix, where N is the number of cameras.
-//     // Column j is the 2D (non-homogeneous) point observed from camera j
-//     const unique_ptr<Mat2X> x,
-//     // Ps[j] is the 3x4 camera matrix for camera j
-//     const unique_ptr<vector<Mat34>> Ps
-// ) {
-//     // https://github.com/openMVG/openMVG/blob/master/src/openMVG/linearProgramming/lInfinityCV/triangulation_test.cpp
-
-//     // TODO
-
-//     std::vector<double> vec_solution(3);
-
-//     OSI_CLP_SolverWrapper wrapperOSICLPSolver(3);  // 3 parameters (x, y, z)
-//     // https://github.com/openMVG/openMVG/blob/master/src/openMVG/linearProgramming/lInfinityCV/triangulation.cpp
-//     Triangulation_L1_ConstraintBuilder cstBuilder(vec_Pi, x_ij);
-//     // Use bisection in order to find the global optimum and so find the
-//     //  best triangulated point under the L_infinity norm
-//     // source: https://github.com/openMVG/openMVG/blob/master/src/openMVG/linearProgramming/bisectionLP.hpp
-//     BisectionLP<Triangulation_L1_ConstraintBuilder,LP_Constraints>(
-//     wrapperOSICLPSolver,
-//     cstBuilder,
-//     &vec_solution,
-//     1.0, // gammaUp
-//     0.0 // gammaLow
-//     );
-// }
-
-// https://github.com/openMVG/openMVG/blob/5e98d504bb76ba2d1d07ae80ac2acb10b3d6f97d/src/openMVG/sfm/sfm_data_BA_test.cpp#L309-L330
-// /// Compute the Root Mean Square Error of the residuals
-// double RMSE(const sfm::SfM_Data & sfm_data)
-// {
-//   // Compute residuals for each observation
-//   std::vector<double> vec;
-//   for (const auto& landmark_it : sfm_data.GetLandmarks())
-//   {
-//     const sfm::Observations & obs = landmark_it.second.obs;
-//     for (const auto& obs_it : obs)
-//     {
-//       const sfm::View * view = sfm_data.GetViews().find(obs_it.first)->second.get();
-//       const geometry::Pose3 pose = sfm_data.GetPoseOrDie(view);
-//       const std::shared_ptr<cameras::IntrinsicBase> intrinsic =
-//       sfm_data.GetIntrinsics().find(view->id_intrinsic)->second; const Vec2 residual =
-//       intrinsic->residual(pose(landmark_it.second.X), obs_it.second.x); vec.push_back( residual(0) ); vec.push_back(
-//       residual(1) );
-//     }
-//   }
-//   const Eigen::Map<Eigen::RowVectorXd> residuals(&vec[0], vec.size());
-//   cout << "Residuals: " << residuals << endl;
-//   const double RMSE = std::sqrt(residuals.squaredNorm() / vec.size());
-//   return RMSE;
-// }
-
 bool ceres_bundle_adjustment(
     // N-vector 2 x M matrix, where N is the number of cameras, M is the number of points.
     // Column j of xs[i] is the 2D (non-homogeneous) observation of point j from camera i
@@ -154,9 +101,6 @@ bool ceres_bundle_adjustment(
         sfm_data.views[i] = view;
     }
 
-    // const double dResidual_before = RMSE(sfm_data);
-    // cout << "Residual before = " << dResidual_before << endl;
-
     // Perform bundle adjustment
     const bool bVerbose = true;
     const bool bMultithread = false;
@@ -167,9 +111,6 @@ bool ceres_bundle_adjustment(
         sfm::Extrinsic_Parameter_Type::ADJUST_ALL,
         sfm::Structure_Parameter_Type::ADJUST_ALL);
     bool result = ba_object->Adjust(sfm_data, optimize_opts);
-
-    // const double dResidual_after = RMSE(sfm_data);
-    // cout << "Residual after = " << dResidual_after << endl;
 
     for (IndexT j = 0; j < npoints; j++) {
         cout << "j=" << j << endl;
