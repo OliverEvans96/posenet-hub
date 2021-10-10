@@ -2,10 +2,10 @@ use std::fmt;
 
 use cxx::memory::UniquePtrTarget;
 use cxx::{CxxVector, UniquePtr};
-use nalgebra::DimName;
-use nalgebra::{self, Matrix3x4, OMatrix};
+use nalgebra::{self, Matrix2xX, Matrix3, Matrix3x4, OMatrix};
+use nalgebra::{DimName, Vector3};
 use nalgebra::{Dynamic, U1, U2, U3, U4};
-use nalgebra::{MatrixSlice, MatrixSlice3x4, VectorSlice4};
+use nalgebra::{MatrixSlice, MatrixSlice3, MatrixSlice3x4, VectorSlice4};
 
 pub type Matrix3xN<T> = OMatrix<T, U3, Dynamic>;
 pub type Matrix2xN<T> = OMatrix<T, U2, Dynamic>;
@@ -18,6 +18,7 @@ pub mod ffi {
         type Mat2X;
         type Mat3X;
         type Mat34;
+        type Mat3;
         type Vec3;
         type Vec4;
     }
@@ -29,6 +30,7 @@ pub mod ffi {
         fn format_mat2x(a: &Mat2X) -> UniquePtr<CxxString>;
         fn format_mat3x(a: &Mat3X) -> UniquePtr<CxxString>;
         fn format_mat34(a: &Mat34) -> UniquePtr<CxxString>;
+        fn format_mat3(a: &Mat3) -> UniquePtr<CxxString>;
         fn format_vec3(a: &Vec3) -> UniquePtr<CxxString>;
         fn format_vec4(a: &Vec4) -> UniquePtr<CxxString>;
 
@@ -36,10 +38,16 @@ pub mod ffi {
         fn mat2x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat2X>;
         fn mat3x_from_data(slice: &[f64], cols: usize) -> UniquePtr<Mat3X>;
         fn mat34_from_data(slice: &[f64]) -> UniquePtr<Mat34>;
+        fn mat3_from_data(slice: &[f64]) -> UniquePtr<Mat3>;
         fn mat34_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Mat34>>;
+        fn mat3_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Mat3>>;
+        fn mat2x_vec_from_data(slice: &[&[f64]], cols: usize) -> UniquePtr<CxxVector<Mat2X>>;
+        fn mat3x_vec_from_data(slice: &[&[f64]], cols: usize) -> UniquePtr<CxxVector<Mat3X>>;
+        fn vec3_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Vec3>>;
 
         // To Nalgebra
         fn mat34_to_slice(slice: &UniquePtr<Mat34>) -> &[f64];
+        fn mat3_to_slice(slice: &UniquePtr<Mat3>) -> &[f64];
         fn vec4_to_slice(slice: &UniquePtr<Vec4>) -> &[f64];
     }
 }
@@ -69,6 +77,14 @@ impl ToEigen for Matrix3xN<f64> {
     }
 }
 
+impl ToEigen for Matrix3<f64> {
+    type T = ffi::Mat3;
+    fn to_eigen(self) -> UniquePtr<Self::T> {
+        let slice = self.as_slice();
+        ffi::mat3_from_data(slice)
+    }
+}
+
 impl ToEigen for Matrix3x4<f64> {
     type T = ffi::Mat34;
     fn to_eigen(self) -> UniquePtr<Self::T> {
@@ -82,6 +98,34 @@ impl ToEigen for &[Matrix3x4<f64>] {
     fn to_eigen(self) -> UniquePtr<Self::T> {
         let slices: Vec<_> = self.iter().map(|mat| mat.as_slice()).collect();
         ffi::mat34_vec_from_data(slices.as_slice())
+    }
+}
+
+impl ToEigen for &[Matrix3<f64>] {
+    type T = CxxVector<ffi::Mat3>;
+    fn to_eigen(self) -> UniquePtr<Self::T> {
+        let slices: Vec<_> = self.iter().map(|mat| mat.as_slice()).collect();
+        ffi::mat3_vec_from_data(slices.as_slice())
+    }
+}
+
+impl ToEigen for &[Matrix2xX<f64>] {
+    type T = CxxVector<ffi::Mat2X>;
+    fn to_eigen(self) -> UniquePtr<Self::T> {
+        let (_rows, cols) = self
+            .first()
+            .and_then(|mat| Some(mat.shape()))
+            .unwrap_or((0, 0));
+        let slices: Vec<_> = self.iter().map(|mat| mat.as_slice()).collect();
+        ffi::mat2x_vec_from_data(slices.as_slice(), cols)
+    }
+}
+
+impl ToEigen for &[Vector3<f64>] {
+    type T = CxxVector<ffi::Vec3>;
+    fn to_eigen(self) -> UniquePtr<Self::T> {
+        let slices: Vec<_> = self.iter().map(|mat| mat.as_slice()).collect();
+        ffi::vec3_vec_from_data(slices.as_slice())
     }
 }
 
@@ -102,6 +146,13 @@ impl ToNalgebra<U3, U4> for UniquePtr<ffi::Mat34> {
     }
 }
 
+impl ToNalgebra<U3, U3> for UniquePtr<ffi::Mat3> {
+    fn to_nalgebra<'a>(&'a self) -> MatrixSlice3<'a, f64> {
+        let slice = ffi::mat3_to_slice(&self);
+        MatrixSlice3::from_slice(slice)
+    }
+}
+
 impl ToNalgebra<U4, U1> for UniquePtr<ffi::Vec4> {
     fn to_nalgebra<'a>(&'a self) -> VectorSlice4<'a, f64> {
         let slice = ffi::vec4_to_slice(&self);
@@ -114,6 +165,19 @@ impl ToNalgebra<U4, U1> for UniquePtr<ffi::Vec4> {
 impl fmt::Debug for ffi::Mat34 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_mat34(self);
+        let s = cxx_str
+            .as_ref()
+            .expect("Pointer had no value.")
+            .to_str()
+            .expect("Could not convert string");
+
+        f.write_str(s)
+    }
+}
+
+impl fmt::Debug for ffi::Mat3 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let cxx_str = ffi::format_mat3(self);
         let s = cxx_str
             .as_ref()
             .expect("Pointer had no value.")

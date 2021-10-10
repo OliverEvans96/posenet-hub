@@ -70,6 +70,7 @@ fn build_cxx() -> UnitResult {
     // NOTE: `cargo test` fails if this comes before cxx_build::bridge.
     // The error is undefined reference to `openMVG::TriangulateNView(...)'
     // Although strangely, running the same function from a binary works.
+    println!("cargo:rustc-link-lib=openMVG_sfm");
     println!("cargo:rustc-link-lib=openMVG_multiview");
     // NOTE: Similarly, numeric must come after multiview
     println!("cargo:rustc-link-lib=openMVG_numeric");
