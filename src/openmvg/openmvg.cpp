@@ -20,14 +20,14 @@ unique_ptr<Vec4> triangulate_nview(
 //     // Ps[j] is the 3x4 camera matrix for camera j
 //     const unique_ptr<vector<Mat34>> Ps
 // ) {
-//     // Based on https://github.com/openMVG/openMVG/blob/master/src/openMVG/linearProgramming/lInfinityCV/triangulation_test.cpp
+//     // https://github.com/openMVG/openMVG/blob/master/src/openMVG/linearProgramming/lInfinityCV/triangulation_test.cpp
 
 //     // TODO
 
 //     std::vector<double> vec_solution(3);
 
 //     OSI_CLP_SolverWrapper wrapperOSICLPSolver(3);  // 3 parameters (x, y, z)
-//     // sourcee: https://github.com/openMVG/openMVG/blob/master/src/openMVG/linearProgramming/lInfinityCV/triangulation.cpp
+//     // https://github.com/openMVG/openMVG/blob/master/src/openMVG/linearProgramming/lInfinityCV/triangulation.cpp
 //     Triangulation_L1_ConstraintBuilder cstBuilder(vec_Pi, x_ij);
 //     // Use bisection in order to find the global optimum and so find the
 //     //  best triangulated point under the L_infinity norm
@@ -41,7 +41,7 @@ unique_ptr<Vec4> triangulate_nview(
 //     );
 // }
 
-// From https://github.com/openMVG/openMVG/blob/5e98d504bb76ba2d1d07ae80ac2acb10b3d6f97d/src/openMVG/sfm/sfm_data_BA_test.cpp#L309-L330
+// https://github.com/openMVG/openMVG/blob/5e98d504bb76ba2d1d07ae80ac2acb10b3d6f97d/src/openMVG/sfm/sfm_data_BA_test.cpp#L309-L330
 // /// Compute the Root Mean Square Error of the residuals
 // double RMSE(const sfm::SfM_Data & sfm_data)
 // {
@@ -54,10 +54,10 @@ unique_ptr<Vec4> triangulate_nview(
 //     {
 //       const sfm::View * view = sfm_data.GetViews().find(obs_it.first)->second.get();
 //       const geometry::Pose3 pose = sfm_data.GetPoseOrDie(view);
-//       const std::shared_ptr<cameras::IntrinsicBase> intrinsic = sfm_data.GetIntrinsics().find(view->id_intrinsic)->second;
-//       const Vec2 residual = intrinsic->residual(pose(landmark_it.second.X), obs_it.second.x);
-//       vec.push_back( residual(0) );
-//       vec.push_back( residual(1) );
+//       const std::shared_ptr<cameras::IntrinsicBase> intrinsic =
+//       sfm_data.GetIntrinsics().find(view->id_intrinsic)->second; const Vec2 residual =
+//       intrinsic->residual(pose(landmark_it.second.X), obs_it.second.x); vec.push_back( residual(0) ); vec.push_back(
+//       residual(1) );
 //     }
 //   }
 //   const Eigen::Map<Eigen::RowVectorXd> residuals(&vec[0], vec.size());
@@ -162,7 +162,10 @@ bool ceres_bundle_adjustment(
     const bool bMultithread = false;
     auto ceres_opts = sfm::Bundle_Adjustment_Ceres::BA_Ceres_options(bVerbose, bMultithread);
     auto ba_object = make_shared<sfm::Bundle_Adjustment_Ceres>(ceres_opts);
-    auto optimize_opts = sfm::Optimize_Options(cameras::Intrinsic_Parameter_Type::ADJUST_ALL, sfm::Extrinsic_Parameter_Type::ADJUST_ALL, sfm::Structure_Parameter_Type::ADJUST_ALL);
+    auto optimize_opts = sfm::Optimize_Options(
+        cameras::Intrinsic_Parameter_Type::ADJUST_ALL,
+        sfm::Extrinsic_Parameter_Type::ADJUST_ALL,
+        sfm::Structure_Parameter_Type::ADJUST_ALL);
     bool result = ba_object->Adjust(sfm_data, optimize_opts);
 
     // const double dResidual_after = RMSE(sfm_data);
