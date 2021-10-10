@@ -3,9 +3,9 @@
 #include <vrpn_Connection.h>
 
 #include <iostream>
+#include <map>
 #include <memory>
 #include <random>
-#include <map>
 
 #include "posenet-vr-hub/src/vrpn/vrpn.rs.h"
 
@@ -18,24 +18,23 @@ const uint32_t NUM_CHANNELS = 4 * NUM_KEYPOINTS + 1;
 
 /***************** PoseNetVRPNServer ******************/
 class PoseNetVrpnServer : public vrpn_Analog {
-   public:
-    PoseNetVrpnServer(const char* device_name,
-                      std::shared_ptr<vrpn_Connection_IP> connection);
+  public:
+    PoseNetVrpnServer(const char *device_name, std::shared_ptr<vrpn_Connection_IP> connection);
     ~PoseNetVrpnServer();
 
     void update_values(rust::Slice<const double> values);
     virtual void mainloop();
 
-   protected:
+  protected:
     struct timeval _timestamp;
 
     void initialize_channels();
 };
 
 class PoseNetVrpnContainer {
-   public:
-    PoseNetVrpnContainer(//std::unique_ptr<PoseNetVrpnServer> _server,
-                         std::shared_ptr<vrpn_Connection_IP> _connection) {
+  public:
+    PoseNetVrpnContainer( // std::unique_ptr<PoseNetVrpnServer> _server,
+        std::shared_ptr<vrpn_Connection_IP> _connection) {
         // server = move(_server);
         connection = move(_connection);
     };
@@ -50,11 +49,10 @@ class PoseNetVrpnContainer {
 std::unique_ptr<PoseNetVrpnContainer> create_container();
 // std::unique_ptr<PoseNetVrpnContainer> create_server(rust::Str device_name);
 
-void update_values(std::unique_ptr<PoseNetVrpnContainer>& container,
-                   rust::Str device_name,
-                   rust::Slice<const double> values);
+void update_values(
+    std::unique_ptr<PoseNetVrpnContainer> &container, rust::Str device_name, rust::Slice<const double> values);
 
-void mainloop(std::unique_ptr<PoseNetVrpnContainer>& container);
+void mainloop(std::unique_ptr<PoseNetVrpnContainer> &container);
 
 // Client
 void run_analog_client(rust::Str connection_string);

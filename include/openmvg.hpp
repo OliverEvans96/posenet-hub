@@ -1,7 +1,7 @@
 #pragma once
+#include <iostream>
 #include <memory>
 #include <openMVG/multiview/triangulation_nview.hpp>
-#include <iostream>
 
 #include <openMVG/cameras/Camera_Pinhole.hpp>
 #include <openMVG/geometry/pose3.hpp>

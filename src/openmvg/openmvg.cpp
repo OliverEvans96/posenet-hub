@@ -7,8 +7,7 @@ unique_ptr<Vec4> triangulate_nview(
     // Column j is the homogeneous 2D point observed from camera j
     const unique_ptr<Mat3X> xh,
     // Ps[j] is the 3x4 camera matrix for camera j
-    const unique_ptr<vector<Mat34>> Ps)
-{
+    const unique_ptr<vector<Mat34>> Ps) {
     auto X = make_unique<Vec4>();
     TriangulateNView(*xh, *Ps, X.get());
     return X;
@@ -79,8 +78,7 @@ bool ceres_bundle_adjustment(
     const unique_ptr<vector<Mat3>> Rs,
     // Column j of X is the 3d reconstruction of point j
     // Also used as an initial guess for bundle adjustment
-    const unique_ptr<Mat3X> X)
-{
+    const unique_ptr<Mat3X> X) {
     sfm::SfM_Data sfm_data;
 
     // Length of vectors
@@ -88,49 +86,41 @@ bool ceres_bundle_adjustment(
     // Number of columns in observations matrices
     IndexT npoints = 0;
 
-    if (nviews > 0)
-    {
+    if (nviews > 0) {
         npoints = (*xs)[0].cols();
     }
 
-    if (Ks->size() < nviews)
-    {
+    if (Ks->size() < nviews) {
         cout << "Ks is too small!" << endl;
         return false;
     }
-    if (ts->size() < nviews)
-    {
+    if (ts->size() < nviews) {
         cout << "ts is too small!" << endl;
         return false;
     }
-    if (Rs->size() < nviews)
-    {
+    if (Rs->size() < nviews) {
         cout << "Rs is too small!" << endl;
         return false;
     }
 
-    if (X->cols() < npoints)
-    {
+    if (X->cols() < npoints) {
         cout << "X has too few columns" << endl;
     }
 
-    for (IndexT j = 0; j < npoints; j++)
-    {
+    for (IndexT j = 0; j < npoints; j++) {
         auto landmark = sfm::Landmark();
         // Initialize 3d point with the given guess
         landmark.X = X->col(j);
         sfm_data.structure[j] = landmark;
     }
 
-    for (IndexT i = 0; i < nviews; i++)
-    {
+    for (IndexT i = 0; i < nviews; i++) {
         auto x = (*xs)[i];
         auto t = (*ts)[i];
         auto R = (*Rs)[i];
         auto K = (*Ks)[i];
 
-        if (x.cols() < npoints)
-        {
+        if (x.cols() < npoints) {
             cout << "x[" << i << "] has too few columns" << endl;
         }
 
@@ -154,8 +144,7 @@ bool ceres_bundle_adjustment(
         view->id_pose = i;
 
         // Record observation of point k from view i
-        for (IndexT j = 0; j < npoints; j++)
-        {
+        for (IndexT j = 0; j < npoints; j++) {
             auto obs = sfm::Observation();
             obs.id_feat = j;
             obs.x = x.col(j);
@@ -172,23 +161,16 @@ bool ceres_bundle_adjustment(
     const bool bVerbose = true;
     const bool bMultithread = false;
     auto ceres_opts = sfm::Bundle_Adjustment_Ceres::BA_Ceres_options(bVerbose, bMultithread);
-    auto ba_object =
-        make_shared<sfm::Bundle_Adjustment_Ceres>(ceres_opts);
-    auto optimize_opts =
-        sfm::Optimize_Options(
-            cameras::Intrinsic_Parameter_Type::ADJUST_ALL,
-            sfm::Extrinsic_Parameter_Type::ADJUST_ALL,
-            sfm::Structure_Parameter_Type::ADJUST_ALL);
+    auto ba_object = make_shared<sfm::Bundle_Adjustment_Ceres>(ceres_opts);
+    auto optimize_opts = sfm::Optimize_Options(cameras::Intrinsic_Parameter_Type::ADJUST_ALL, sfm::Extrinsic_Parameter_Type::ADJUST_ALL, sfm::Structure_Parameter_Type::ADJUST_ALL);
     bool result = ba_object->Adjust(sfm_data, optimize_opts);
 
     // const double dResidual_after = RMSE(sfm_data);
     // cout << "Residual after = " << dResidual_after << endl;
 
-    for (IndexT j = 0; j < npoints; j++)
-    {
+    for (IndexT j = 0; j < npoints; j++) {
         cout << "j=" << j << endl;
-        cout << sfm_data.GetLandmarks().at(j).X << endl
-             << endl;
+        cout << sfm_data.GetLandmarks().at(j).X << endl << endl;
     }
 
     // Update input arguments with optimized values

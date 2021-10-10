@@ -2,9 +2,7 @@
 
 // Format
 
-template <typename T>
-unique_ptr<string> format_mat(const T &A)
-{
+template <typename T> unique_ptr<string> format_mat(const T &A) {
     stringstream ss;
     ss << A;
     auto s = make_unique<string>(ss.str());
@@ -19,40 +17,30 @@ unique_ptr<string> format_vec4(const Vec4 &A) { return format_mat(A); }
 
 // To Eigen
 
-unique_ptr<Mat2X> mat2x_from_data(rust::Slice<const double> slice,
-                                  size_t cols)
-{
+unique_ptr<Mat2X> mat2x_from_data(rust::Slice<const double> slice, size_t cols) {
     const int rows = 2;
     Map<const Mat2X> mf(slice.data(), rows, cols);
     return make_unique<Mat2X>(mf);
 }
 
-unique_ptr<Mat3X> mat3x_from_data(rust::Slice<const double> slice,
-                                  size_t cols)
-{
+unique_ptr<Mat3X> mat3x_from_data(rust::Slice<const double> slice, size_t cols) {
     const int rows = 3;
     Map<const Mat3X> mf(slice.data(), rows, cols);
     return make_unique<Mat3X>(mf);
 }
 
-unique_ptr<Mat34> mat34_from_data(rust::Slice<const double> slice)
-{
+unique_ptr<Mat34> mat34_from_data(rust::Slice<const double> slice) {
     const int rows = 3;
     const int cols = 4;
     Map<const Mat34> mf(slice.data(), rows, cols);
     return make_unique<Mat34>(mf);
 }
 
-unique_ptr<vector<Mat34>> mat34_vec_from_data(
-    const rust::Slice<const rust::Slice<const double>> slices)
-{
+unique_ptr<vector<Mat34>> mat34_vec_from_data(const rust::Slice<const rust::Slice<const double>> slices) {
     const int rows = 3;
     const int cols = 4;
     auto vp = make_unique<vector<Mat34>>();
-    for (rust::Slice<const rust::Slice<const double>>::iterator it =
-             slices.begin();
-         it != slices.end(); ++it)
-    {
+    for (rust::Slice<const rust::Slice<const double>>::iterator it = slices.begin(); it != slices.end(); ++it) {
         Map<const Mat34> mf(it->data(), rows, cols);
         Mat34 mat(mf);
         vp->push_back(mat);
@@ -60,16 +48,11 @@ unique_ptr<vector<Mat34>> mat34_vec_from_data(
     return vp;
 }
 
-unique_ptr<vector<Mat3>> mat3_vec_from_data(
-    const rust::Slice<const rust::Slice<const double>> slices)
-{
+unique_ptr<vector<Mat3>> mat3_vec_from_data(const rust::Slice<const rust::Slice<const double>> slices) {
     const int rows = 3;
     const int cols = 3;
     auto vp = make_unique<vector<Mat3>>();
-    for (rust::Slice<const rust::Slice<const double>>::iterator it =
-             slices.begin();
-         it != slices.end(); ++it)
-    {
+    for (rust::Slice<const rust::Slice<const double>>::iterator it = slices.begin(); it != slices.end(); ++it) {
         Map<const Mat3> mf(it->data(), rows, cols);
         Mat3 mat(mf);
         vp->push_back(mat);
@@ -77,16 +60,10 @@ unique_ptr<vector<Mat3>> mat3_vec_from_data(
     return vp;
 }
 
-unique_ptr<vector<Mat2X>> mat2x_vec_from_data(
-    const rust::Slice<const rust::Slice<const double>> slices,
-    size_t cols)
-{
+unique_ptr<vector<Mat2X>> mat2x_vec_from_data(const rust::Slice<const rust::Slice<const double>> slices, size_t cols) {
     const int rows = 2;
     auto vp = make_unique<vector<Mat2X>>();
-    for (rust::Slice<const rust::Slice<const double>>::iterator it =
-             slices.begin();
-         it != slices.end(); ++it)
-    {
+    for (rust::Slice<const rust::Slice<const double>>::iterator it = slices.begin(); it != slices.end(); ++it) {
         Map<const Mat2X> mf(it->data(), rows, cols);
         Mat2X mat(mf);
         vp->push_back(mat);
@@ -94,16 +71,10 @@ unique_ptr<vector<Mat2X>> mat2x_vec_from_data(
     return vp;
 }
 
-unique_ptr<vector<Mat3X>> mat3x_vec_from_data(
-    const rust::Slice<const rust::Slice<const double>> slices,
-    size_t cols)
-{
+unique_ptr<vector<Mat3X>> mat3x_vec_from_data(const rust::Slice<const rust::Slice<const double>> slices, size_t cols) {
     const int rows = 3;
     auto vp = make_unique<vector<Mat3X>>();
-    for (rust::Slice<const rust::Slice<const double>>::iterator it =
-             slices.begin();
-         it != slices.end(); ++it)
-    {
+    for (rust::Slice<const rust::Slice<const double>>::iterator it = slices.begin(); it != slices.end(); ++it) {
         Map<const Mat3X> mf(it->data(), rows, cols);
         Mat3X mat(mf);
         vp->push_back(mat);
@@ -111,15 +82,10 @@ unique_ptr<vector<Mat3X>> mat3x_vec_from_data(
     return vp;
 }
 
-unique_ptr<vector<Vec3>> vec3_vec_from_data(
-    const rust::Slice<const rust::Slice<const double>> slices)
-{
+unique_ptr<vector<Vec3>> vec3_vec_from_data(const rust::Slice<const rust::Slice<const double>> slices) {
     const int rows = 3;
     auto vp = make_unique<vector<Vec3>>();
-    for (rust::Slice<const rust::Slice<const double>>::iterator it =
-             slices.begin();
-         it != slices.end(); ++it)
-    {
+    for (rust::Slice<const rust::Slice<const double>>::iterator it = slices.begin(); it != slices.end(); ++it) {
         Map<const Vec3> mf(it->data(), rows, 1);
         Vec3 vec(mf);
         vp->push_back(vec);
@@ -127,8 +93,7 @@ unique_ptr<vector<Vec3>> vec3_vec_from_data(
     return vp;
 }
 
-unique_ptr<Mat3> mat3_from_data(rust::Slice<const double> slice)
-{
+unique_ptr<Mat3> mat3_from_data(rust::Slice<const double> slice) {
     const int rows = 3;
     const int cols = 3;
     Map<const Mat3> mf(slice.data(), rows, cols);
@@ -137,8 +102,7 @@ unique_ptr<Mat3> mat3_from_data(rust::Slice<const double> slice)
 
 // To Nalgebra
 
-rust::Slice<const double> mat34_to_slice(const unique_ptr<Mat34> &mat_ptr)
-{
+rust::Slice<const double> mat34_to_slice(const unique_ptr<Mat34> &mat_ptr) {
     // See Eigen Map docs
     // https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
     const size_t rows = 3;
@@ -149,8 +113,7 @@ rust::Slice<const double> mat34_to_slice(const unique_ptr<Mat34> &mat_ptr)
     return slice;
 }
 
-rust::Slice<const double> mat3_to_slice(const unique_ptr<Mat3> &mat_ptr)
-{
+rust::Slice<const double> mat3_to_slice(const unique_ptr<Mat3> &mat_ptr) {
     // See Eigen Map docs
     // https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
     const size_t rows = 3;
@@ -161,8 +124,7 @@ rust::Slice<const double> mat3_to_slice(const unique_ptr<Mat3> &mat_ptr)
     return slice;
 }
 
-rust::Slice<const double> vec4_to_slice(const unique_ptr<Vec4> &mat_ptr)
-{
+rust::Slice<const double> vec4_to_slice(const unique_ptr<Vec4> &mat_ptr) {
     // See Eigen Map docs
     // https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
     const size_t rows = 4;
