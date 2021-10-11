@@ -102,7 +102,7 @@ pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) ->
     let camera_mat = camera_poses.to_eigen();
 
     let x3d_h_eig = ffi::triangulate_nview(x2d_h_mat, camera_mat);
-    let x3d_h = x3d_h_eig.to_nalgebra();
+    let x3d_h = x3d_h_eig.to_nalgebra().unwrap(); // TODO: Don't panic
     // TODO: Avoid copying? Does this `.into()` copy?
     let x3d =
         Point3::from_homogeneous(x3d_h.into()).expect("Triangulated point was not homogeneous");
@@ -526,8 +526,17 @@ mod tests {
         println!("Rs = {:#?}", rse);
         println!("X = {:#?}", x3de);
 
+        let q = xse.as_ref().unwrap();
+        for el in q {
+            println!("el: {:?}", el);
+        }
+
+        let ksn = kse.to_nalgebra().unwrap();
+        let tsn = tse.to_nalgebra().unwrap();
+        let rsn = rse.to_nalgebra().unwrap();
+        let x3dn = x3de.to_nalgebra().unwrap();
+
         // TODO: Use wrapper?
-        // let result = ceres_bundle_adjustment(points2d_slice, cameras).unwrap();
         assert_eq!(result, true);
     }
 }

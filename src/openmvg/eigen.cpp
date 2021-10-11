@@ -14,6 +14,7 @@ unique_ptr<string> format_mat34(const Mat34 &A) { return format_mat(A); }
 unique_ptr<string> format_mat3(const Mat3 &A) { return format_mat(A); }
 unique_ptr<string> format_vec3(const Vec3 &A) { return format_mat(A); }
 unique_ptr<string> format_vec4(const Vec4 &A) { return format_mat(A); }
+unique_ptr<string> format_vec2(const Vec2 &A) { return format_mat(A); }
 
 // To Eigen
 
@@ -100,36 +101,23 @@ unique_ptr<Mat3> mat3_from_data(rust::Slice<const double> slice) {
     return make_unique<Mat3>(mf);
 }
 
+unique_ptr<Vec2> vec2_from_data(rust::Slice<const double> slice) {
+    const int rows = 2;
+    const int cols = 1;
+    Map<const Vec2> mf(slice.data(), rows, cols);
+    return make_unique<Vec2>(mf);
+}
+
 // To Nalgebra
 
-rust::Slice<const double> mat34_to_slice(const unique_ptr<Mat34> &mat_ptr) {
-    // See Eigen Map docs
-    // https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
-    const size_t rows = 3;
-    const size_t cols = 4;
-    double *data_ptr = &(*mat_ptr)(0);
-    Map<Mat34> mf(data_ptr, rows, cols);
-    rust::Slice<const double> slice{mf.data(), (size_t)mf.size()};
+template <typename T> rust::Slice<const double> mat_to_slice(const T &mat) {
+    const double *data_ptr = &(mat)(0);
+    rust::Slice<const double> slice{data_ptr, mat.size()};
     return slice;
 }
 
-rust::Slice<const double> mat3_to_slice(const unique_ptr<Mat3> &mat_ptr) {
-    // See Eigen Map docs
-    // https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
-    const size_t rows = 3;
-    const size_t cols = 3;
-    double *data_ptr = &(*mat_ptr)(0);
-    Map<Mat3> mf(data_ptr, rows, cols);
-    rust::Slice<const double> slice{mf.data(), (size_t)mf.size()};
-    return slice;
-}
-
-rust::Slice<const double> vec4_to_slice(const unique_ptr<Vec4> &mat_ptr) {
-    // See Eigen Map docs
-    // https://eigen.tuxfamily.org/dox/group__TutorialMapClass.html
-    const size_t rows = 4;
-    double *data_ptr = &(*mat_ptr)(0);
-    Map<Vec4> mf(data_ptr, rows);
-    rust::Slice<const double> slice{mf.data(), (size_t)mf.size()};
-    return slice;
-}
+rust::Slice<const double> mat34_to_slice(const Mat34 &mat) { return mat_to_slice(mat); }
+rust::Slice<const double> mat3_to_slice(const Mat3 &mat) { return mat_to_slice(mat); }
+rust::Slice<const double> mat3x_to_slice(const Mat3X &mat) { return mat_to_slice(mat); }
+rust::Slice<const double> vec4_to_slice(const Vec4 &mat) { return mat_to_slice(mat); }
+rust::Slice<const double> vec3_to_slice(const Vec3 &mat) { return mat_to_slice(mat); }
