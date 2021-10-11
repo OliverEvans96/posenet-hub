@@ -46,9 +46,9 @@ pub mod ffi {
         fn vec3_vec_from_data(slice: &[&[f64]]) -> UniquePtr<CxxVector<Vec3>>;
 
         // To Nalgebra
-        fn mat34_to_slice(slice: &UniquePtr<Mat34>) -> &[f64];
-        fn mat3_to_slice(slice: &UniquePtr<Mat3>) -> &[f64];
-        fn vec4_to_slice(slice: &UniquePtr<Vec4>) -> &[f64];
+        fn mat34_to_slice(ptr: &UniquePtr<Mat34>) -> &[f64];
+        fn mat3_to_slice(ptr: &UniquePtr<Mat3>) -> &[f64];
+        fn vec4_to_slice(ptr: &UniquePtr<Vec4>) -> &[f64];
     }
 }
 

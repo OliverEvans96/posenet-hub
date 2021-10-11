@@ -31,11 +31,11 @@ mod ffi {
         ) -> UniquePtr<Vec4>;
 
         fn ceres_bundle_adjustment(
-            xs: UniquePtr<CxxVector<Mat2X>>,
-            Ks: UniquePtr<CxxVector<Mat3>>,
-            ts: UniquePtr<CxxVector<Vec3>>,
-            Rs: UniquePtr<CxxVector<Mat3>>,
-            x3d: UniquePtr<Mat3X>,
+            xs: &UniquePtr<CxxVector<Mat2X>>,
+            Ks: &mut UniquePtr<CxxVector<Mat3>>,
+            ts: &mut UniquePtr<CxxVector<Vec3>>,
+            Rs: &mut UniquePtr<CxxVector<Mat3>>,
+            x3d: &mut UniquePtr<Mat3X>,
         ) -> bool;
     }
 }
@@ -80,11 +80,11 @@ pub fn ceres_bundle_adjustment(
         .collect();
 
     Some(ffi::ceres_bundle_adjustment(
-        xs.to_eigen(),
-        ks.to_eigen(),
-        ts.to_eigen(),
-        rs.to_eigen(),
-        x3d.to_eigen(),
+        &xs.to_eigen(),
+        &mut ks.to_eigen(),
+        &mut ts.to_eigen(),
+        &mut rs.to_eigen(),
+        &mut x3d.to_eigen(),
     ))
 }
 
@@ -234,7 +234,7 @@ mod tests {
         let rng = thread_rng();
         let mut rand_iter = rng.sample_iter(Standard);
 
-        for i in 0..nviews {
+        for _ in 0..nviews {
             let extrinsics = CameraExtrinsics {
                 view_matrix: (&mut rand_iter).take(16).collect(),
             };
@@ -273,7 +273,6 @@ mod tests {
         let mut rs = Vec::with_capacity(nviews);
         let mut ts = Vec::with_capacity(nviews);
         let mut ks = Vec::with_capacity(nviews);
-        let x3d = Matrix3xX::zeros(npoints);
 
         // Camera 1
         {
@@ -464,13 +463,68 @@ mod tests {
             ks.push(k);
         }
 
-        let result = ffi::ceres_bundle_adjustment(
-            xs.to_eigen(),
-            rs.to_eigen(),
-            ts.to_eigen(),
-            ks.to_eigen(),
-            x3d.to_eigen(),
-        );
+        // Initial guess at 3d reconstruction
+        let x3d = Matrix3xX::from_row_slice(&[
+            5.75736038,
+            6.19566462,
+            6.31175113,
+            6.04272584,
+            6.11553653,
+            3.5023089,
+            2.95261357,
+            -3.38746644,
+            -2.73479096,
+            0.20888902,
+            0.08938635,
+            -2.70167554,
+            -2.65021819,
+            -0.09247657,
+            -0.38035375,
+            0.3800269,
+            -0.67891853,
+            1.35480288,
+            -1.49434688,
+            2.17649122,
+            -1.37799213,
+            1.45635137,
+            -2.53573721,
+            3.15891996,
+            -2.39838245,
+            3.74450797,
+            -9.03620081,
+            -9.11342563,
+            -9.55889736,
+            -9.3307351,
+            -10.1025985,
+            -10.52251742,
+            -8.39828106,
+            -13.31026506,
+            -10.19966323,
+            -9.86394792,
+            -9.9113146,
+            -9.95466323,
+            -10.43326768,
+        ]);
+
+        let xse = xs.to_eigen();
+        let mut rse = rs.to_eigen();
+        let mut tse = ts.to_eigen();
+        let mut kse = ks.to_eigen();
+        let mut x3de = x3d.to_eigen();
+
+        println!("Before BA");
+        println!("ks = {:#?}", kse);
+        println!("ts = {:#?}", tse);
+        println!("Rs = {:#?}", rse);
+        println!("X = {:#?}", x3de);
+
+        let result = ffi::ceres_bundle_adjustment(&xse, &mut kse, &mut tse, &mut rse, &mut x3de);
+
+        println!("After BA");
+        println!("ks = {:#?}", kse);
+        println!("ts = {:#?}", tse);
+        println!("Rs = {:#?}", rse);
+        println!("X = {:#?}", x3de);
 
         // TODO: Use wrapper?
         // let result = ceres_bundle_adjustment(points2d_slice, cameras).unwrap();
