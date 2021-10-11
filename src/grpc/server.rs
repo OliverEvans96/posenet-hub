@@ -170,9 +170,6 @@ impl HubService for HubServer {
 
         log::info!("Snapshot request {}", snapshot_id);
 
-        // TODO: oh boy, clean this up.
-        // let (camera_names, send_results, rx) = {
-
         // Introduce new scope here to drop RwLock on snapshot_offers ASAP
         let (camera_names, send_results, rx) = {
             let all_offers = self.snapshot_offers.read().await;

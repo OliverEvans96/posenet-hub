@@ -219,8 +219,8 @@ impl Triangulator {
     async fn listen_for_cameras(&self) -> Result<(), BoxError> {
         loop {
             let camera = self.cameras_rx.recv().await?;
-            let matrix = calculate_camera_matrix(&camera)
-                .expect("error in calculate camera matrix");
+            let matrix =
+                calculate_camera_matrix(&camera).expect("error in calculate camera matrix");
             let state = CameraState {
                 info: camera,
                 matrix,
