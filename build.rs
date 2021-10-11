@@ -52,7 +52,7 @@ fn build_cxx() -> UnitResult {
     cxx_build::bridge("src/openmvg/eigen.rs")
         .file("src/openmvg/eigen.cpp")
         .include(&eigen_include_dir)
-        .flag_if_supported("-std=c++14")
+        .flag_if_supported("-std=c++17")
         // Building for the wrong architecture can cause segfaults
         // See https://github.com/openMVG/openMVG/issues/1847
         .flag_if_supported("-mtune=generic")
@@ -61,7 +61,7 @@ fn build_cxx() -> UnitResult {
     cxx_build::bridge("src/openmvg/openmvg.rs")
         .file("src/openmvg/openmvg.cpp")
         .include(&eigen_include_dir)
-        .flag_if_supported("-std=c++14")
+        .flag_if_supported("-std=c++17")
         // Building for the wrong architecture can cause segfaults
         // See https://github.com/openMVG/openMVG/issues/1847
         .flag_if_supported("-mtune=generic")
