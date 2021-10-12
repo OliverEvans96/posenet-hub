@@ -193,7 +193,6 @@ pub fn get_projection(x3d: Point3<f64>, p: Matrix3x4<f64>) -> Point2<f64> {
 mod tests {
     use super::*;
     use nalgebra::{Matrix3xX, Point2, Point3};
-    use rand::distributions::Standard;
 
     #[test]
     fn test_projection() {
@@ -260,47 +259,6 @@ mod tests {
             }
         }
     }
-
-    // #[test]
-    // fn test_rand_bundle_adjustment() {
-    //     use rand::{thread_rng, Rng};
-
-    //     use super::ceres_bundle_adjustment;
-
-    //     let mut cameras = Vec::new();
-    //     let mut points2d_slice = Vec::new();
-    //     let nviews = 4;
-    //     let npoints = 8;
-
-    //     let rng = thread_rng();
-    //     let mut rand_iter = rng.sample_iter(Standard);
-
-    //     for _ in 0..nviews {
-    //         let extrinsics = CameraExtrinsics {
-    //             view_matrix: (&mut rand_iter).take(16).collect(),
-    //         };
-    //         let intrinsics = CameraIntrinsics {
-    //             camera_matrix: (&mut rand_iter).take(9).collect(),
-    //             ..Default::default()
-    //         };
-    //         let camera = CameraInfo {
-    //             extrinsics: Some(extrinsics),
-    //             intrinsics: Some(intrinsics),
-    //             ..Default::default()
-    //         };
-    //         cameras.push(camera);
-    //         let mut points2d = Vec::new();
-    //         for _ in 0..npoints {
-    //             let coords: Vec<_> = (&mut rand_iter).take(2).collect();
-    //             let point = Point2::from_slice(&coords);
-    //             points2d.push(point);
-    //         }
-    //         points2d_slice.push(points2d);
-    //     }
-
-    //     let result = ceres_bundle_adjustment(points2d_slice, cameras);
-    //     assert_eq!(result, true);
-    // }
 
     #[test]
     fn test_real_pose_ceres_bundle_adjustment() {
