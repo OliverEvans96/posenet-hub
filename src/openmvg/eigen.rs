@@ -67,12 +67,12 @@ pub mod ffi {
 
 pub trait ToEigen {
     type T: UniquePtrTarget;
-    fn to_eigen(self) -> UniquePtr<Self::T>;
+    fn to_eigen(&self) -> UniquePtr<Self::T>;
 }
 
 impl ToEigen for Matrix2xN<f64> {
     type T = ffi::Mat2X;
-    fn to_eigen(self) -> UniquePtr<Self::T> {
+    fn to_eigen(&self) -> UniquePtr<Self::T> {
         let (_rows, cols) = self.shape();
         let slice = self.as_slice();
         ffi::mat2x_from_data(slice, cols)
@@ -81,7 +81,7 @@ impl ToEigen for Matrix2xN<f64> {
 
 impl ToEigen for Matrix3xN<f64> {
     type T = ffi::Mat3X;
-    fn to_eigen(self) -> UniquePtr<Self::T> {
+    fn to_eigen(&self) -> UniquePtr<Self::T> {
         let (_rows, cols) = self.shape();
         let slice = self.as_slice();
         ffi::mat3x_from_data(slice, cols)
@@ -90,7 +90,7 @@ impl ToEigen for Matrix3xN<f64> {
 
 impl ToEigen for Vector2<f64> {
     type T = ffi::Vec2;
-    fn to_eigen(self) -> UniquePtr<Self::T> {
+    fn to_eigen(&self) -> UniquePtr<Self::T> {
         let slice = self.as_slice();
         ffi::vec2_from_data(slice)
     }
@@ -98,7 +98,7 @@ impl ToEigen for Vector2<f64> {
 
 impl ToEigen for Matrix3<f64> {
     type T = ffi::Mat3;
-    fn to_eigen(self) -> UniquePtr<Self::T> {
+    fn to_eigen(&self) -> UniquePtr<Self::T> {
         let slice = self.as_slice();
         ffi::mat3_from_data(slice)
     }
@@ -106,39 +106,39 @@ impl ToEigen for Matrix3<f64> {
 
 impl ToEigen for Matrix3x4<f64> {
     type T = ffi::Mat34;
-    fn to_eigen(self) -> UniquePtr<Self::T> {
+    fn to_eigen(&self) -> UniquePtr<Self::T> {
         let slice = self.as_slice();
         ffi::mat34_from_data(slice)
     }
 }
 
-impl ToEigen for &[Matrix3x4<f64>] {
+impl ToEigen for [Matrix3x4<f64>] {
     type T = CxxVector<ffi::Mat34>;
-    fn to_eigen(self) -> UniquePtr<Self::T> {
+    fn to_eigen(&self) -> UniquePtr<Self::T> {
         let slices: Vec<_> = self.iter().map(|mat| mat.as_slice()).collect();
         ffi::mat34_vec_from_data(slices.as_slice())
     }
 }
 
-impl ToEigen for &[Vector3<f64>] {
+impl ToEigen for [Vector3<f64>] {
     type T = CxxVector<ffi::Vec3>;
-    fn to_eigen(self) -> UniquePtr<Self::T> {
+    fn to_eigen(&self) -> UniquePtr<Self::T> {
         let slices: Vec<_> = self.iter().map(|mat| mat.as_slice()).collect();
         ffi::vec3_vec_from_data(slices.as_slice())
     }
 }
 
-impl ToEigen for &[Matrix3<f64>] {
+impl ToEigen for [Matrix3<f64>] {
     type T = CxxVector<ffi::Mat3>;
-    fn to_eigen(self) -> UniquePtr<Self::T> {
+    fn to_eigen(&self) -> UniquePtr<Self::T> {
         let slices: Vec<_> = self.iter().map(|mat| mat.as_slice()).collect();
         ffi::mat3_vec_from_data(slices.as_slice())
     }
 }
 
-impl ToEigen for &[Matrix2xX<f64>] {
+impl ToEigen for [Matrix2xX<f64>] {
     type T = CxxVector<ffi::Mat2X>;
-    fn to_eigen(self) -> UniquePtr<Self::T> {
+    fn to_eigen(&self) -> UniquePtr<Self::T> {
         let (_rows, cols) = self
             .first()
             .and_then(|mat| Some(mat.shape()))
@@ -339,7 +339,7 @@ mod tests {
         let mut mats: Vec<Matrix3x4<f64>> =
             (0..n).map(|_| Matrix3x4::<f64>::new_random()).collect();
         // let mats: &mut [Matrix3x4<f64>];
-        let mut e_mats = mats.as_mut_slice().to_eigen();
+        let mut e_mats = mats.to_eigen();
         let pin = e_mats.pin_mut();
         for i in 0..n {
             let e_mat = pin

@@ -41,52 +41,93 @@ mod ffi {
 }
 
 pub fn ceres_bundle_adjustment(
-    points2d_slice: Vec<Vec<Point2<f64>>>,
-    cameras: Vec<CameraInfo>,
-) -> Option<bool> {
-    // TODO: Major overhaul to this wrapper function
-    let mut ks = Vec::new();
-    let mut rs = Vec::new();
-    let mut ts = Vec::new();
-    // TODO: Get from args?
-    let x3d = Matrix3xX::zeros(
-        points2d_slice
-            .first()
-            .and_then(|f| Some(f.len()))
-            .unwrap_or(0),
-    );
-    for camera in cameras {
-        let k = Matrix3::<f64>::from_row_slice(&camera.intrinsics?.camera_matrix);
-        let c = Matrix4::<f64>::from_row_slice(&camera.extrinsics?.view_matrix);
-        // Remove bottom row (0 0 0 1)
-        let cn = c.fixed_rows::<3>(0);
-        let r: Matrix3<f64> = cn.fixed_columns::<3>(0).into();
-        let t: Vector3<f64> = cn.fixed_columns::<1>(3).into();
-        ks.push(k);
-        rs.push(r);
-        ts.push(t)
+    xs: &Vec<Matrix2xX<f64>>,
+    ks: &mut Vec<Matrix3<f64>>,
+    ts: &mut Vec<Vector3<f64>>,
+    rs: &mut Vec<Matrix3<f64>>,
+    x3d: &mut Matrix3xX<f64>,
+) -> bool {
+    // All `Vec`s should be the same length
+    let nviews = xs.len();
+
+    // Convert to Eigen types
+    let xse = xs.to_eigen();
+    let mut rse = rs.to_eigen();
+    let mut tse = ts.to_eigen();
+    let mut kse = ks.to_eigen();
+    let mut x3de = x3d.to_eigen();
+
+    // Perform bundle adjustment
+    let result = ffi::ceres_bundle_adjustment(&xse, &mut kse, &mut tse, &mut rse, &mut x3de);
+
+    // Only proceed if bundle adjustment succeeded
+    if result {
+        // Convert back to nalgebra
+        // TODO: Don't panic
+        let ksn = kse.to_nalgebra().unwrap();
+        let tsn = tse.to_nalgebra().unwrap();
+        let rsn = rse.to_nalgebra().unwrap();
+        let x3dn = x3de.to_nalgebra().unwrap();
+
+        // Modify input arguments
+        x3d.copy_from(&x3dn);
+        for i in 0..nviews {
+            ks[i].copy_from(&ksn[i]);
+            ts[i].copy_from(&tsn[i]);
+            rs[i].copy_from(&rsn[i]);
+        }
     }
 
-    let xs: Vec<Matrix2xX<f64>> = points2d_slice
-        .into_iter()
-        .map(|points2d| {
-            let columns: Vec<_> = points2d
-                .iter()
-                .flat_map(|point2d| point2d.coords.into_iter())
-                .copied()
-                .collect();
-            Matrix2xX::from_column_slice(&columns)
-        })
-        .collect();
-
-    Some(ffi::ceres_bundle_adjustment(
-        &xs.to_eigen(),
-        &mut ks.to_eigen(),
-        &mut ts.to_eigen(),
-        &mut rs.to_eigen(),
-        &mut x3d.to_eigen(),
-    ))
+    return result;
 }
+
+// pub fn ceres_bundle_adjustment(
+//     points2d_slice: Vec<Vec<Point2<f64>>>,
+//     cameras: Vec<CameraInfo>,
+// ) -> Option<bool> {
+//     // TODO: Major overhaul to this wrapper function
+//     let mut ks = Vec::new();
+//     let mut rs = Vec::new();
+//     let mut ts = Vec::new();
+//     // TODO: Get from args?
+//     let x3d = Matrix3xX::zeros(
+//         points2d_slice
+//             .first()
+//             .and_then(|f| Some(f.len()))
+//             .unwrap_or(0),
+//     );
+//     for camera in cameras {
+//         let k = Matrix3::<f64>::from_row_slice(&camera.intrinsics?.camera_matrix);
+//         let c = Matrix4::<f64>::from_row_slice(&camera.extrinsics?.view_matrix);
+//         // Remove bottom row (0 0 0 1)
+//         let cn = c.fixed_rows::<3>(0);
+//         let r: Matrix3<f64> = cn.fixed_columns::<3>(0).into();
+//         let t: Vector3<f64> = cn.fixed_columns::<1>(3).into();
+//         ks.push(k);
+//         rs.push(r);
+//         ts.push(t)
+//     }
+
+//     let xs: Vec<Matrix2xX<f64>> = points2d_slice
+//         .into_iter()
+//         .map(|points2d| {
+//             let columns: Vec<_> = points2d
+//                 .iter()
+//                 .flat_map(|point2d| point2d.coords.into_iter())
+//                 .copied()
+//                 .collect();
+//             Matrix2xX::from_column_slice(&columns)
+//         })
+//         .collect();
+
+//     Some(ffi::ceres_bundle_adjustment(
+//         &xs.to_eigen(),
+//         &mut ks.to_eigen(),
+//         &mut ts.to_eigen(),
+//         &mut rs.to_eigen(),
+//         &mut x3d.to_eigen(),
+//     ))
+// }
 
 /// Triangulate a single point across multiple cameras
 pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) -> Point3<f64> {
@@ -220,51 +261,51 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_rand_bundle_adjustment() {
-        use rand::{thread_rng, Rng};
+    // #[test]
+    // fn test_rand_bundle_adjustment() {
+    //     use rand::{thread_rng, Rng};
 
-        use super::ceres_bundle_adjustment;
+    //     use super::ceres_bundle_adjustment;
 
-        let mut cameras = Vec::new();
-        let mut points2d_slice = Vec::new();
-        let nviews = 4;
-        let npoints = 8;
+    //     let mut cameras = Vec::new();
+    //     let mut points2d_slice = Vec::new();
+    //     let nviews = 4;
+    //     let npoints = 8;
 
-        let rng = thread_rng();
-        let mut rand_iter = rng.sample_iter(Standard);
+    //     let rng = thread_rng();
+    //     let mut rand_iter = rng.sample_iter(Standard);
 
-        for _ in 0..nviews {
-            let extrinsics = CameraExtrinsics {
-                view_matrix: (&mut rand_iter).take(16).collect(),
-            };
-            let intrinsics = CameraIntrinsics {
-                camera_matrix: (&mut rand_iter).take(9).collect(),
-                ..Default::default()
-            };
-            let camera = CameraInfo {
-                extrinsics: Some(extrinsics),
-                intrinsics: Some(intrinsics),
-                ..Default::default()
-            };
-            cameras.push(camera);
-            let mut points2d = Vec::new();
-            for _ in 0..npoints {
-                let coords: Vec<_> = (&mut rand_iter).take(2).collect();
-                let point = Point2::from_slice(&coords);
-                points2d.push(point);
-            }
-            points2d_slice.push(points2d);
-        }
+    //     for _ in 0..nviews {
+    //         let extrinsics = CameraExtrinsics {
+    //             view_matrix: (&mut rand_iter).take(16).collect(),
+    //         };
+    //         let intrinsics = CameraIntrinsics {
+    //             camera_matrix: (&mut rand_iter).take(9).collect(),
+    //             ..Default::default()
+    //         };
+    //         let camera = CameraInfo {
+    //             extrinsics: Some(extrinsics),
+    //             intrinsics: Some(intrinsics),
+    //             ..Default::default()
+    //         };
+    //         cameras.push(camera);
+    //         let mut points2d = Vec::new();
+    //         for _ in 0..npoints {
+    //             let coords: Vec<_> = (&mut rand_iter).take(2).collect();
+    //             let point = Point2::from_slice(&coords);
+    //             points2d.push(point);
+    //         }
+    //         points2d_slice.push(points2d);
+    //     }
 
-        let result = ceres_bundle_adjustment(points2d_slice, cameras).unwrap();
-        assert_eq!(result, true);
-    }
+    //     let result = ceres_bundle_adjustment(points2d_slice, cameras);
+    //     assert_eq!(result, true);
+    // }
 
     #[test]
     fn test_real_pose_ceres_bundle_adjustment() {
         let nviews = 3;
-        let npoints = 13;
+        // let npoints = 13;
 
         // Test data from snapshot 57179f56-0aa3-47d0-bd83-ee758996d02b
         // excluding legs because they weren't present in all views
@@ -464,7 +505,7 @@ mod tests {
         }
 
         // Initial guess at 3d reconstruction
-        let x3d = Matrix3xX::from_row_slice(&[
+        let mut x3d = Matrix3xX::from_row_slice(&[
             5.75736038,
             6.19566462,
             6.31175113,
@@ -506,37 +547,27 @@ mod tests {
             -10.43326768,
         ]);
 
-        let xse = xs.to_eigen();
-        let mut rse = rs.to_eigen();
-        let mut tse = ts.to_eigen();
-        let mut kse = ks.to_eigen();
-        let mut x3de = x3d.to_eigen();
+        // Copy values before mutating to compare later
+        let ksc = ks.clone();
+        let tsc = ts.clone();
+        let rsc = rs.clone();
+        let x3dc = x3d.clone();
 
-        println!("Before BA");
-        println!("ks = {:#?}", kse);
-        println!("ts = {:#?}", tse);
-        println!("Rs = {:#?}", rse);
-        println!("X = {:#?}", x3de);
+        // Perform BA
+        let result = ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d);
 
-        let result = ffi::ceres_bundle_adjustment(&xse, &mut kse, &mut tse, &mut rse, &mut x3de);
-
-        println!("After BA");
-        println!("ks = {:#?}", kse);
-        println!("ts = {:#?}", tse);
-        println!("Rs = {:#?}", rse);
-        println!("X = {:#?}", x3de);
-
-        let q = xse.as_ref().unwrap();
-        for el in q {
-            println!("el: {:?}", el);
-        }
-
-        let ksn = kse.to_nalgebra().unwrap();
-        let tsn = tse.to_nalgebra().unwrap();
-        let rsn = rse.to_nalgebra().unwrap();
-        let x3dn = x3de.to_nalgebra().unwrap();
-
-        // TODO: Use wrapper?
+        // The BA should suceed
         assert_eq!(result, true);
+        // No parameters should remain identical
+        for (k, kc) in ks.iter().zip(ksc.iter()) {
+            assert_ne!(k, kc);
+        }
+        for (t, tc) in ts.iter().zip(tsc.iter()) {
+            assert_ne!(t, tc);
+        }
+        for (r, rc) in rs.iter().zip(rsc.iter()) {
+            assert_ne!(r, rc);
+        }
+        assert_ne!(x3d, x3dc);
     }
 }
