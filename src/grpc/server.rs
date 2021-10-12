@@ -364,6 +364,11 @@ impl HubService for HubServer {
         let views = message.views;
         let nviews = views.len();
         let nposes = if nviews > 0 { views[0].poses.len() } else { 0 };
+        log::info!(
+            "Got bundle adjustment request with {} views and {} poses",
+            nviews,
+            nposes
+        );
 
         // Combine all poses into single matrix
         let npoints_total = nkeypoints * nposes;
@@ -419,6 +424,7 @@ impl HubService for HubServer {
         let result = ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d);
 
         if !result {
+            log::error!("Bundle adjustment failed");
             return Err(Status::internal("Bundle adjustment failed"));
         }
 
@@ -479,6 +485,7 @@ impl HubService for HubServer {
 
         // Send response
         let response = BundleAdjustmentResponse { cameras, poses };
+        log::info!("Bundle adjustment completed successfully.");
         Ok(Response::new(response))
     }
 }
