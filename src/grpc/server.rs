@@ -374,7 +374,7 @@ impl HubService for HubServer {
         let mut ts = Vec::with_capacity(nviews);
 
         // Collect initial guess
-        for (k, initial_pose) in message.intial_poses.into_iter().enumerate() {
+        for (k, initial_pose) in message.initial_poses.into_iter().enumerate() {
             let (spoints, _): (Vec<SPoint3>, f64) = initial_pose.into();
             for (h, (point, _score)) in spoints.iter().enumerate() {
                 let j = nkeypoints * k + h;
