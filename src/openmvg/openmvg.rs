@@ -143,7 +143,8 @@ pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) ->
     let camera_mat = camera_poses.to_eigen();
 
     let x3d_h_eig = ffi::triangulate_nview(x2d_h_mat, camera_mat);
-    let x3d_h = x3d_h_eig.to_nalgebra().unwrap(); // TODO: Don't panic
+    // TODO: Don't panic
+    let x3d_h = x3d_h_eig.to_nalgebra().unwrap();
     // TODO: Avoid copying? Does this `.into()` copy?
     let x3d =
         Point3::from_homogeneous(x3d_h.into()).expect("Triangulated point was not homogeneous");
@@ -184,7 +185,7 @@ pub fn create_camera_matrix(center: Point3<f64>, rotation: Rotation3<f64>) -> Ma
 /// Project a single 3D point onto a single camera
 pub fn get_projection(x3d: Point3<f64>, p: Matrix3x4<f64>) -> Point2<f64> {
     let x3d_h = x3d.to_homogeneous();
-    let x2d_h = p * x3d_h;
+    let x2d_h = p * x3d_h; // TODO: Is this correct?
     let x2d = Point2::<f64>::from_homogeneous(x2d_h);
     x2d.expect("Point was not homogeneous, projection failed.")
 }
