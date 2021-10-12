@@ -81,54 +81,6 @@ pub fn ceres_bundle_adjustment(
     return result;
 }
 
-// pub fn ceres_bundle_adjustment(
-//     points2d_slice: Vec<Vec<Point2<f64>>>,
-//     cameras: Vec<CameraInfo>,
-// ) -> Option<bool> {
-//     // TODO: Major overhaul to this wrapper function
-//     let mut ks = Vec::new();
-//     let mut rs = Vec::new();
-//     let mut ts = Vec::new();
-//     // TODO: Get from args?
-//     let x3d = Matrix3xX::zeros(
-//         points2d_slice
-//             .first()
-//             .and_then(|f| Some(f.len()))
-//             .unwrap_or(0),
-//     );
-//     for camera in cameras {
-//         let k = Matrix3::<f64>::from_row_slice(&camera.intrinsics?.camera_matrix);
-//         let c = Matrix4::<f64>::from_row_slice(&camera.extrinsics?.view_matrix);
-//         // Remove bottom row (0 0 0 1)
-//         let cn = c.fixed_rows::<3>(0);
-//         let r: Matrix3<f64> = cn.fixed_columns::<3>(0).into();
-//         let t: Vector3<f64> = cn.fixed_columns::<1>(3).into();
-//         ks.push(k);
-//         rs.push(r);
-//         ts.push(t)
-//     }
-
-//     let xs: Vec<Matrix2xX<f64>> = points2d_slice
-//         .into_iter()
-//         .map(|points2d| {
-//             let columns: Vec<_> = points2d
-//                 .iter()
-//                 .flat_map(|point2d| point2d.coords.into_iter())
-//                 .copied()
-//                 .collect();
-//             Matrix2xX::from_column_slice(&columns)
-//         })
-//         .collect();
-
-//     Some(ffi::ceres_bundle_adjustment(
-//         &xs.to_eigen(),
-//         &mut ks.to_eigen(),
-//         &mut ts.to_eigen(),
-//         &mut rs.to_eigen(),
-//         &mut x3d.to_eigen(),
-//     ))
-// }
-
 /// Triangulate a single point across multiple cameras
 pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) -> Point3<f64> {
     assert_eq!(points2d.len(), camera_poses.len());
