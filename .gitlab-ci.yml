@@ -1,5 +1,8 @@
+
 stages:
   - build
+  - doc
+  - test
 
 build-cpp-deps:
   stage: build
@@ -42,3 +45,26 @@ build-image:
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
       # Tag images with git commit SHAs
     - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/main.Dockerfile --destination $CI_REGISTRY_IMAGE:latest --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --build-arg SRC_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
+
+# https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
+pages:
+  stage: doc
+  image: 'rust:latest'
+  script:
+    - cargo doc --no-deps
+    - mv target/doc public
+    - echo '<meta http-equiv="refresh" content="0; url={{ LIBRARY NAME }}">' > public/index.html
+  artifacts:
+    paths:
+      - public
+  only:
+    - master
+
+test:
+  stage: test
+  image:
+    name: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+  script:
+    - rustc --version
+    - cargo --version
+    - cargo test --verbose
