@@ -83,6 +83,25 @@ enum GrpcClientCommand {
         #[structopt(flatten)]
         common: CommonOpts,
     },
+
+    /// Act as a non-camera client, and request camera data
+    /// from currently connected cameras
+    GetSnapshotCameras {
+        /// Camera group to request snapshots from
+        #[structopt(short, long)]
+        group: String,
+
+        /// Base directory where new output directory should be created
+        /// with returned images and data. Will be created if not present.
+        /// Parent direcories will not be created (as in mkdir -p).
+        /// Previous camera data will be overwritten.
+        #[structopt(short, long, default_value = "cameras")]
+        #[structopt(parse(from_os_str))]
+        output: PathBuf,
+
+        #[structopt(flatten)]
+        common: CommonOpts,
+    },
 }
 
 impl CameraCommand {
@@ -101,6 +120,7 @@ impl GrpcClientCommand {
         match self {
             GrpcClientCommand::Camera { cmd, .. } => cmd.get_common_opts(),
             GrpcClientCommand::GetSnapshots { common, .. } => common,
+            GrpcClientCommand::GetSnapshotCameras { common, .. } => common,
         }
     }
 }
@@ -202,6 +222,61 @@ async fn get_snapshots(
     Ok(())
 }
 
+async fn get_snapshot_cameras(
+    client: &mut HubServiceClient<Channel>,
+    group_name: String,
+    output_path: PathBuf,
+) -> Result<(), Box<dyn Error>> {
+    log::info!("Looking up camera info");
+    let cameras_response = grpc_client::get_snapshot_cameras(client, group_name).await?;
+    let cameras = cameras_response.cameras;
+    log::info!("Got {} cameras.", cameras.len());
+
+    // TODO: Reconstruct 3D poses also?
+
+    // Create base directory if it doesn't exist
+    if !output_path.exists() {
+        fs::create_dir(&output_path)?;
+    }
+
+    // TODO: split some of this into a separate function
+    // Loop over snapshots
+    for camera in cameras {
+        // Create directory for this camera,
+        // overwriting files if it already exists
+        let camera_dir_path = output_path.join(&camera.camera_name);
+        fs::create_dir(&camera_dir_path).ok();
+
+        if let Some(intrinsics) = camera.intrinsics {
+            let intrinsics_filename = "intrinsics.yaml";
+            let intrinsics_path = camera_dir_path.join(intrinsics_filename);
+
+            let writer = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(intrinsics_path)?;
+            serde_yaml::to_writer(writer, &intrinsics)?;
+        } else {
+            log::error!("Camera has no intrinsics.");
+        }
+
+        if let Some(extrinsics) = camera.extrinsics {
+            let extrinsics_filename = "extrinsics.yaml";
+            let extrinsics_path = camera_dir_path.join(extrinsics_filename);
+
+            let writer = fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .open(extrinsics_path)?;
+            serde_yaml::to_writer(writer, &extrinsics)?;
+        } else {
+            log::error!("Camera has no extrinsics.");
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
@@ -222,6 +297,9 @@ pub async fn main() -> Result<(), Box<dyn Error>> {
         },
         GrpcClientCommand::GetSnapshots { group, output, .. } => {
             get_snapshots(&mut client, group, output).await?
+        }
+        GrpcClientCommand::GetSnapshotCameras { group, output, .. } => {
+            get_snapshot_cameras(&mut client, group, output).await?
         }
     };
 

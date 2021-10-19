@@ -14,7 +14,7 @@ use super::proto::hub_service_client::HubServiceClient;
 use super::proto::{CameraExtrinsics, CameraInfo, CameraIntrinsics};
 use super::proto::{
     CameraSnapshotRequest, CameraSnapshotResponse, ServerSnapshotRequest, ServerSnapshotResponse,
-    SnapshotClientOffer,
+    SnapshotCamerasResponse,
 };
 use super::proto::{ImageData, Pose2DImageMessage, Pose2DMessage};
 
@@ -163,9 +163,10 @@ pub async fn offer_snapshots(
     let camera_name = generate_name();
 
     // Construct offer
-    let offer = SnapshotClientOffer {
+    let offer = CameraInfo {
         group_name: group_name.clone(),
         camera_name: camera_name.clone(),
+        ..Default::default()
     };
 
     // Send offer and get stream handle from server
@@ -196,5 +197,14 @@ pub async fn get_snapshots(
 ) -> Result<ServerSnapshotResponse, Box<dyn Error>> {
     let request = ServerSnapshotRequest { group_name };
     let response = client.get_snapshots(request).await?.into_inner();
+    Ok(response)
+}
+
+pub async fn get_snapshot_cameras(
+    client: &mut HubServiceClient<Channel>,
+    group_name: String,
+) -> Result<SnapshotCamerasResponse, Box<dyn Error>> {
+    let request = ServerSnapshotRequest { group_name };
+    let response = client.get_snapshot_cameras(request).await?.into_inner();
     Ok(response)
 }

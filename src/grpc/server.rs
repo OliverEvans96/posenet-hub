@@ -17,8 +17,14 @@ use super::proto::{
     BundleAdjustmentResponse, CameraExtrinsics, CameraInfo, CameraIntrinsics,
     CameraSnapshotRequest, CameraSnapshotResponse, Empty, HelloResponse, Pose2D,
     Pose2DImageMessage, Pose2DMessage, Pose3D, SPoint2, SPoint3, ServerSnapshotRequest,
-    ServerSnapshotResponse, SnapshotClientOffer, TriangulationRequest, TriangulationResponse,
+    ServerSnapshotResponse, SnapshotCamerasResponse, TriangulationRequest, TriangulationResponse,
 };
+
+#[derive(Debug)]
+struct SnapshotOffer {
+    camera: CameraInfo,
+    snd: channel::Sender<Result<CameraSnapshotRequest, Status>>,
+}
 
 pub struct HubServer {
     cameras_tx: channel::Sender<CameraInfo>,
@@ -28,18 +34,10 @@ pub struct HubServer {
     ///
     /// TODO: Is this the right place to store this?
     /// or should we send somewhere else to store?
-    snapshot_offers: RwLock<
-        HashMap<String, HashMap<String, channel::Sender<Result<CameraSnapshotRequest, Status>>>>,
-    >,
+    snapshot_offers: RwLock<HashMap<String, HashMap<String, SnapshotOffer>>>,
     /// Channels where incoming snapshots can be placed between
     /// get-snapshots request and response.
     snapshot_channels: RwLock<HashMap<String, channel::Sender<Pose2DImageMessage>>>,
-}
-
-#[derive(Debug)]
-pub struct NamedCameraInfo {
-    pub name: String,
-    pub info: CameraInfo,
 }
 
 #[derive(Debug, Clone)]
@@ -91,34 +89,33 @@ impl HubService for HubServer {
 
     async fn wait_for_snapshot_request(
         &self,
-        request: tonic::Request<super::proto::SnapshotClientOffer>,
+        request: tonic::Request<super::proto::CameraInfo>,
     ) -> Result<tonic::Response<Self::WaitForSnapshotRequestStream>, tonic::Status> {
-        match request.into_inner() {
-            SnapshotClientOffer {
-                group_name,
-                camera_name,
-            } => {
-                // Create channel to send snapshot requests later
-                let (tx, rx) = channel::unbounded();
+        let camera = request.into_inner();
+        // Create channel to send snapshot requests later
+        let (tx, rx) = channel::unbounded();
 
-                // New scope here to release lock on snapshot_offers ASAP
-                {
-                    // Activate lock to gain thread-safe, mutable access to shared data
-                    // (this rpc could be called multiple times simultaneously)
-                    let mut offers_hm = self.snapshot_offers.write().await;
+        // New scope here to release lock on snapshot_offers ASAP
+        {
+            // Activate lock to gain thread-safe, mutable access to shared data
+            // (this rpc could be called multiple times simultaneously)
+            let mut offers_hm = self.snapshot_offers.write().await;
 
-                    // Get HashMap existing for group if it exists, otherwise create a new one
-                    let group_offers = offers_hm.entry(group_name).or_insert_with(HashMap::new);
+            let group_name = camera.group_name.clone();
+            let camera_name = camera.camera_name.clone();
 
-                    // TODO: Handle repeat offers? (success = false)
-                    group_offers.insert(camera_name, tx);
+            // Get HashMap existing for group if it exists, otherwise create a new one
+            let group_offers = offers_hm.entry(group_name).or_insert_with(HashMap::new);
 
-                    // TODO: Remove if camera stops listening to stream?
-                }
+            let offer = SnapshotOffer { camera, snd: tx };
 
-                Ok(tonic::Response::new(rx))
-            }
+            // TODO: Handle repeat offers? (success = false)
+            group_offers.insert(camera_name, offer);
+
+            // TODO: Remove if camera stops listening to stream?
         }
+
+        Ok(tonic::Response::new(rx))
     }
 
     async fn send_snapshot(
@@ -191,13 +188,13 @@ impl HubService for HubServer {
                 timestamp: Some(SystemTime::now().into()),
             };
 
-            let (camera_names, offer_txs): (Vec<_>, Vec<_>) = group_offers
+            let (camera_names, offers): (Vec<_>, Vec<_>) = group_offers
                 .iter()
                 // Filter out closed offers
                 // TODO: Better to actually remove closed offers from offers_hm (which this is not doing)
                 // when camera disconnects by implementing a custom Stream wrapper.
                 //  See https://github.com/hyperium/tonic/issues/377
-                .filter(|(_, offer)| !offer.is_closed())
+                .filter(|(_, offer)| !offer.snd.is_closed())
                 .unzip();
 
             // Create channel for snapshot_id before requesting
@@ -210,9 +207,9 @@ impl HubService for HubServer {
 
             // Send requests to relevant cameras & get futures
             // TODO: Is it necessary to clone camera_request? Can it be passed by reference?
-            let send_futures: Vec<_> = offer_txs
+            let send_futures: Vec<_> = offers
                 .iter()
-                .map(|tx| tx.send(Ok(camera_request.clone())))
+                .map(|offer| offer.snd.send(Ok(camera_request.clone())))
                 .collect();
 
             // Copy camera names so that we can drop the read lock on self.snapshot_offers
@@ -288,6 +285,25 @@ impl HubService for HubServer {
                 group_name
             )))
         }
+    }
+
+    async fn get_snapshot_cameras(
+        &self,
+        request: tonic::Request<super::proto::ServerSnapshotRequest>,
+    ) -> Result<tonic::Response<super::proto::SnapshotCamerasResponse>, tonic::Status> {
+        let ServerSnapshotRequest { group_name } = request.into_inner();
+        let all_offers = self.snapshot_offers.read().await;
+        let group_offers = all_offers
+            .get(&group_name)
+            .ok_or(tonic::Status::unavailable(format!(
+                "No outstanding snapshot offers for group {}",
+                group_name
+            )))?;
+
+        let cameras = group_offers.values().map(|offer| offer.camera.clone()).collect();
+        let message = SnapshotCamerasResponse { cameras };
+
+        Ok(Response::new(message))
     }
 
     async fn triangulate(

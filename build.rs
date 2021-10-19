@@ -11,7 +11,7 @@ fn build_grpc() -> UnitResult {
 
     tonic_build::configure()
         .build_client(true)
-        // Allow auto-generated Point and Pose types to be
+        // Allow auto-generated tonic / gRPC types to be
         // serialized and deserialized with serde
         // See:
         // 1. https://www.reddit.com/r/rust/comments/efuikd/comment/fc3d6c6/?utm_source=share&utm_medium=web2x&context=3
@@ -32,6 +32,14 @@ fn build_grpc() -> UnitResult {
         )
         .type_attribute(
             "Pose3D",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "CameraIntrinsics",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "CameraExtrinsics",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .compile(&["proto/hub.proto"], &["proto"])?;
