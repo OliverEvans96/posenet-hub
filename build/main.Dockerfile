@@ -1,4 +1,4 @@
-FROM gitlab-registry.nautilus.optiputer.net/librareome/posenet/posenet-hub/rust-deps AS build
+FROM gitlab-registry.nrp-nautilus.io/librareome/posenet/posenet-hub/rust-deps AS build
 
 ARG SRC_COMMIT
 ENV SRC_COMMIT=$SRC_COMMIT

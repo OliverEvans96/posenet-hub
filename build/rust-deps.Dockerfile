@@ -1,4 +1,4 @@
-FROM gitlab-registry.nautilus.optiputer.net/librareome/posenet/posenet-hub/cpp-deps
+FROM gitlab-registry.nrp-nautilus.io/librareome/posenet/posenet-hub/cpp-deps
 
 ARG RUST_DEPS_COMMIT
 ENV RUST_DEPS_COMMIT=$RUST_DEPS_COMMIT
