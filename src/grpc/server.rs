@@ -1,6 +1,7 @@
 use async_std::channel;
 use futures::future::join_all;
 use futures::StreamExt;
+use nalgebra::{Matrix2xX, Matrix3, Matrix3xX, Matrix4, Point3, Vector2, Vector3};
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime};
 use std::{error::Error, net::SocketAddr};
@@ -9,11 +10,14 @@ use tokio::sync::RwLock;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 use uuid::Uuid;
 
+use crate::openmvg::openmvg::ceres_bundle_adjustment;
+
 use super::proto::hub_service_server::{HubService, HubServiceServer};
 use super::proto::{
-    CameraInfo, CameraSnapshotRequest, CameraSnapshotResponse, Empty, HelloResponse, Pose2D,
-    Pose2DImageMessage, Pose2DMessage, ServerSnapshotRequest, ServerSnapshotResponse,
-    SnapshotClientOffer, TriangulationRequest, TriangulationResponse,
+    BundleAdjustmentResponse, CameraExtrinsics, CameraInfo, CameraIntrinsics,
+    CameraSnapshotRequest, CameraSnapshotResponse, Empty, HelloResponse, Pose2D,
+    Pose2DImageMessage, Pose2DMessage, Pose3D, SPoint2, SPoint3, ServerSnapshotRequest,
+    ServerSnapshotResponse, SnapshotClientOffer, TriangulationRequest, TriangulationResponse,
 };
 
 pub struct HubServer {
@@ -152,7 +156,7 @@ impl HubService for HubServer {
                 message: None,
             } => {
                 // If there's no message, don't do anything
-                println!(
+                log::warn!(
                     "Received empty CameraSnapshotResponse for snapshot {:?}",
                     snapshot_id
                 );
@@ -169,9 +173,6 @@ impl HubService for HubServer {
         let snapshot_id = Uuid::new_v4().to_string();
 
         log::info!("Snapshot request {}", snapshot_id);
-
-        // TODO: oh boy, clean this up.
-        // let (camera_names, send_results, rx) = {
 
         // Introduce new scope here to drop RwLock on snapshot_offers ASAP
         let (camera_names, send_results, rx) = {
@@ -351,6 +352,149 @@ impl HubService for HubServer {
 
         log::info!("Finished triangulate request");
 
+        Ok(Response::new(response))
+    }
+
+    async fn bundle_adjustment(
+        &self,
+        request: tonic::Request<super::proto::BundleAdjustmentRequest>,
+    ) -> Result<tonic::Response<super::proto::BundleAdjustmentResponse>, tonic::Status> {
+        let message = request.into_inner();
+        let nkeypoints = 17;
+        let views = message.views;
+        let nviews = views.len();
+        let nposes = if nviews > 0 { views[0].poses.len() } else { 0 };
+        log::info!(
+            "Got bundle adjustment request with {} views and {} poses",
+            nviews,
+            nposes
+        );
+        log::info!("BA opts: {:#?}", message.options);
+
+        // Combine all poses into single matrix
+        let npoints_total = nkeypoints * nposes;
+        let mut xs = Vec::with_capacity(nviews);
+        let mut x3d = Matrix3xX::zeros(npoints_total);
+        let mut ks = Vec::with_capacity(nviews);
+        let mut rs = Vec::with_capacity(nviews);
+        let mut ts = Vec::with_capacity(nviews);
+
+        // Collect initial guess
+        let mut original_scores = Vec::with_capacity(npoints_total);
+        for (k, initial_pose) in message.initial_poses.into_iter().enumerate() {
+            let (spoints, _): (Vec<SPoint3>, f64) = initial_pose.into();
+            for (h, (point, score)) in spoints.iter().enumerate() {
+                let j = nkeypoints * k + h;
+                let col = Vector3::new(point.x, point.y, point.z);
+                original_scores.push(score.clone());
+                x3d.set_column(j, &col);
+            }
+        }
+
+        let mut orig_cameras = Vec::with_capacity(nviews);
+        for view in views {
+            // Collect keypoint observations from this camera
+            let mut x = Matrix2xX::zeros(npoints_total);
+            for (k, pose) in view.poses.into_iter().enumerate() {
+                let (spoints, _): (Vec<SPoint2>, f64) = pose.into();
+                for (h, (point, _score)) in spoints.iter().enumerate() {
+                    let j = nkeypoints * k + h;
+                    // TODO: Use score
+                    let col = Vector2::new(point.x, point.y);
+                    x.set_column(j, &col);
+                }
+            }
+            xs.push(x);
+
+            // TODO: Don't panic
+            let camera = view.camera.unwrap();
+            // TODO: Use distortion coefficients
+            let k = Matrix3::from_row_slice(&camera.intrinsics.as_ref().unwrap().camera_matrix);
+            let c = Matrix4::from_row_slice(&camera.extrinsics.as_ref().unwrap().view_matrix);
+            let cn = c.fixed_rows::<3>(0);
+            // TODO: Avoid copying here?
+            let r = cn.fixed_columns::<3>(0).clone_owned();
+            let t = cn.column(3).clone_owned();
+
+            ks.push(k);
+            rs.push(r);
+            ts.push(t);
+
+            // Save camera for later
+            orig_cameras.push(camera);
+        }
+
+        let result =
+            ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d, message.options);
+
+        if !result {
+            log::error!("Bundle adjustment failed");
+            return Err(Status::internal("Bundle adjustment failed"));
+        }
+
+        // Unpack results back into protobuf types
+        let mut cameras = Vec::with_capacity(nviews);
+        for (i, orig_camera) in orig_cameras.into_iter().enumerate() {
+            let camera_name = orig_camera.camera_name;
+            let group_name = orig_camera.group_name;
+            let distortion = orig_camera
+                .intrinsics
+                .map(|int| int.distortion)
+                .unwrap_or(vec![]);
+
+            // Collect view matrix from r & t
+            let r = rs[i];
+            let t = ts[i];
+            let mut c = Matrix4::identity();
+            let mut cn = c.fixed_rows_mut::<3>(0);
+            cn.fixed_columns_mut::<3>(0).copy_from(&r);
+            cn.column_mut(3).copy_from(&t);
+            // We want row-major order, but nalgebra gives us column-major,
+            // so transpose first.
+            let view_matrix = c.transpose().as_slice().to_vec();
+
+            // Collect camera matrix
+            let camera_matrix = ks[i].transpose().as_slice().to_vec();
+            let camera = CameraInfo {
+                extrinsics: Some(CameraExtrinsics { view_matrix }),
+                intrinsics: Some(CameraIntrinsics {
+                    camera_matrix,
+                    distortion,
+                    rms_error: 0.0, // Not sure what to do with this
+                }),
+                camera_name,
+                group_name,
+            };
+            cameras.push(camera);
+        }
+
+        // Unpack poses
+        let use_orig_scores = original_scores.len() > 0;
+        let mut poses = Vec::with_capacity(nposes);
+        for k in 0..nposes {
+            let mut spoints = Vec::with_capacity(nkeypoints);
+            for h in 0..nkeypoints {
+                let j = nkeypoints * k + h;
+                let col = x3d.column(j);
+                let point = Point3::from_slice(col.as_slice());
+                // Use scores from initial guess if provided
+                let score = if use_orig_scores {
+                    original_scores[j]
+                } else {
+                    1.0
+                };
+                let spoint = (point, score);
+                spoints.push(spoint);
+            }
+            // TODO: What to use for score?
+            let score = 1.0;
+            let pose: Pose3D = (spoints, score).into();
+            poses.push(pose)
+        }
+
+        // Send response
+        let response = BundleAdjustmentResponse { cameras, poses };
+        log::info!("Bundle adjustment completed successfully.");
         Ok(Response::new(response))
     }
 }

@@ -7,8 +7,7 @@ using namespace std;
 /***************** PoseNetVRPNServer ******************/
 // Based on http://www.vrgeeks.org/vrpn/tutorial---vrpn-server
 
-PoseNetVrpnServer::PoseNetVrpnServer(const char *device_name,
-                                     shared_ptr<vrpn_Connection_IP> connection)
+PoseNetVrpnServer::PoseNetVrpnServer(const char *device_name, shared_ptr<vrpn_Connection_IP> connection)
     : vrpn_Analog(device_name, connection.get()) {
     vrpn_Analog::num_channel = NUM_CHANNELS;
 
@@ -26,8 +25,7 @@ void PoseNetVrpnServer::initialize_channels() {
 void PoseNetVrpnServer::update_values(rust::Slice<const double> values) {
     size_t num_values = values.length();
     if (num_values != NUM_CHANNELS) {
-        cout << "ERROR: Expected " << NUM_CHANNELS << " values, but got "
-             << num_values << endl;
+        cout << "ERROR: Expected " << NUM_CHANNELS << " values, but got " << num_values << endl;
     } else {
         for (size_t i = 0; i < num_values; i++) {
             channel[i] = values[i];
@@ -65,11 +63,10 @@ unique_ptr<PoseNetVrpnContainer> create_container() {
     return container;
 }
 
-void update_values(unique_ptr<PoseNetVrpnContainer> &container,
-                   rust::Str device_name,
-                   rust::Slice<const double> values) {
+void update_values(
+    unique_ptr<PoseNetVrpnContainer> &container, rust::Str device_name, rust::Slice<const double> values) {
     string name(device_name.data(), device_name.size());
-    if(container->servers.count(name) == 0){
+    if (container->servers.count(name) == 0) {
         auto server = make_unique<PoseNetVrpnServer>(name.data(), container->connection);
         container->servers[name] = move(server);
         printf("VRPN analog device started --> %s\n", name.data());
@@ -81,7 +78,7 @@ void update_values(unique_ptr<PoseNetVrpnContainer> &container,
 void mainloop(unique_ptr<PoseNetVrpnContainer> &container) {
     // Update Server
     // container->server->mainloop();
-    for (const auto& kv : container->servers)
+    for (const auto &kv : container->servers)
         kv.second->mainloop();
 
     // Update Connection
@@ -102,8 +99,7 @@ void VRPN_CALLBACK handle_analog(void *userData, const vrpn_ANALOGCB a) {
 }
 
 void run_analog_client(rust::Str connection_string) {
-    vrpn_Analog_Remote *vrpnAnalog =
-        new vrpn_Analog_Remote(connection_string.data());
+    vrpn_Analog_Remote *vrpnAnalog = new vrpn_Analog_Remote(connection_string.data());
 
     vrpnAnalog->register_change_handler(0, handle_analog);
 

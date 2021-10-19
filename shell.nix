@@ -23,7 +23,7 @@ in
 stdenv.mkDerivation {
   name = "rust-env";
   nativeBuildInputs = [
-    rustc cargo
+    rustc cargo rustfmt
 
     # Example Build-time Additional Dependencies
     pkg-config

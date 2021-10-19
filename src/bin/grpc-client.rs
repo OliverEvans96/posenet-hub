@@ -153,6 +153,9 @@ async fn get_snapshots(
     let snapshots_response = grpc_client::get_snapshots(client, group_name).await?;
     log::info!("Got {} snapshots.", snapshots_response.messages.len());
 
+    // Print snapshot id to stdout
+    println!("{}", snapshots_response.snapshot_id);
+
     // TODO: Reconstruct 3D poses also?
 
     // Create base directory if it doesn't exist

@@ -349,15 +349,3 @@ impl Distribution<ImageData> for Standard {
         }
     }
 }
-
-impl From<AnonymousCameraInfo> for CameraInfo {
-    /// Convert an anonymous camera to a named camera with an empty name
-    fn from(anon: AnonymousCameraInfo) -> Self {
-        Self {
-            camera_name: String::new(),
-            group_name: String::new(),
-            extrinsics: anon.extrinsics,
-            intrinsics: anon.intrinsics,
-        }
-    }
-}
