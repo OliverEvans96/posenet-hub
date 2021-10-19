@@ -34,4 +34,5 @@ bool ceres_bundle_adjustment(
     unique_ptr<vector<Mat3>> &Rs,
     // Column j of X is the 3d reruction of point j
     // Also used as an initial guess for bundle adjustment
-    unique_ptr<Mat3X> &X);
+    unique_ptr<Mat3X> &X,
+    BundleAdjustmentOptions opts);

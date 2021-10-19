@@ -156,7 +156,7 @@ impl HubService for HubServer {
                 message: None,
             } => {
                 // If there's no message, don't do anything
-                println!(
+                log::warn!(
                     "Received empty CameraSnapshotResponse for snapshot {:?}",
                     snapshot_id
                 );
@@ -369,6 +369,7 @@ impl HubService for HubServer {
             nviews,
             nposes
         );
+        log::info!("BA opts: {:#?}", message.options);
 
         // Combine all poses into single matrix
         let npoints_total = nkeypoints * nposes;
@@ -379,11 +380,13 @@ impl HubService for HubServer {
         let mut ts = Vec::with_capacity(nviews);
 
         // Collect initial guess
+        let mut original_scores = Vec::with_capacity(npoints_total);
         for (k, initial_pose) in message.initial_poses.into_iter().enumerate() {
             let (spoints, _): (Vec<SPoint3>, f64) = initial_pose.into();
-            for (h, (point, _score)) in spoints.iter().enumerate() {
+            for (h, (point, score)) in spoints.iter().enumerate() {
                 let j = nkeypoints * k + h;
                 let col = Vector3::new(point.x, point.y, point.z);
+                original_scores.push(score.clone());
                 x3d.set_column(j, &col);
             }
         }
@@ -421,7 +424,8 @@ impl HubService for HubServer {
             orig_cameras.push(camera);
         }
 
-        let result = ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d);
+        let result =
+            ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d, message.options);
 
         if !result {
             log::error!("Bundle adjustment failed");
@@ -465,6 +469,7 @@ impl HubService for HubServer {
         }
 
         // Unpack poses
+        let use_orig_scores = original_scores.len() > 0;
         let mut poses = Vec::with_capacity(nposes);
         for k in 0..nposes {
             let mut spoints = Vec::with_capacity(nkeypoints);
@@ -472,8 +477,12 @@ impl HubService for HubServer {
                 let j = nkeypoints * k + h;
                 let col = x3d.column(j);
                 let point = Point3::from_slice(col.as_slice());
-                // TODO: What to use for score?
-                let score = 1.0;
+                // Use scores from initial guess if provided
+                let score = if use_orig_scores {
+                    original_scores[j]
+                } else {
+                    1.0
+                };
                 let spoint = (point, score);
                 spoints.push(spoint);
             }

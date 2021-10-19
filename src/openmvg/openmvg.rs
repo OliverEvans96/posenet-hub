@@ -6,7 +6,9 @@ use nalgebra::{self, Matrix2xX, Matrix3, Matrix3x4, Matrix3xX, Matrix4, Vector2}
 use nalgebra::{Point2, Point3, Rotation3, Vector3};
 
 use super::eigen::{Matrix3xN, ToEigen, ToNalgebra};
-use crate::grpc::proto::{CameraExtrinsics, CameraInfo, CameraIntrinsics, Point2D};
+use crate::grpc::proto::{
+    BundleAdjustmentOptions, CameraExtrinsics, CameraInfo, CameraIntrinsics, Point2D,
+};
 
 #[cxx::bridge]
 mod ffi {
@@ -18,6 +20,13 @@ mod ffi {
         type Mat3 = crate::openmvg::eigen::ffi::Mat3;
         type Vec3 = crate::openmvg::eigen::ffi::Vec3;
         type Vec4 = crate::openmvg::eigen::ffi::Vec4;
+    }
+
+    struct BundleAdjustmentOptions {
+        camera_rotation: bool,
+        camera_translation: bool,
+        camera_intrinsics: bool,
+        pose3d: bool,
     }
 
     unsafe extern "C++" {
@@ -36,7 +45,36 @@ mod ffi {
             ts: &mut UniquePtr<CxxVector<Vec3>>,
             Rs: &mut UniquePtr<CxxVector<Mat3>>,
             x3d: &mut UniquePtr<Mat3X>,
+            opts: BundleAdjustmentOptions,
         ) -> bool;
+    }
+}
+
+impl Default for ffi::BundleAdjustmentOptions {
+    fn default() -> Self {
+        Self {
+            camera_rotation: true,
+            camera_translation: true,
+            camera_intrinsics: true,
+            pose3d: true,
+        }
+    }
+}
+
+impl From<BundleAdjustmentOptions> for ffi::BundleAdjustmentOptions {
+    fn from(opts: BundleAdjustmentOptions) -> Self {
+        Self {
+            camera_rotation: opts.camera_rotation,
+            camera_translation: opts.camera_translation,
+            camera_intrinsics: opts.camera_intrinsics,
+            pose3d: opts.pose3d,
+        }
+    }
+}
+
+impl From<Option<BundleAdjustmentOptions>> for ffi::BundleAdjustmentOptions {
+    fn from(maybe_opts: Option<BundleAdjustmentOptions>) -> Self {
+        maybe_opts.map(|opts| opts.into()).unwrap_or_default()
     }
 }
 
@@ -46,6 +84,7 @@ pub fn ceres_bundle_adjustment(
     ts: &mut Vec<Vector3<f64>>,
     rs: &mut Vec<Matrix3<f64>>,
     x3d: &mut Matrix3xX<f64>,
+    opts: Option<BundleAdjustmentOptions>,
 ) -> bool {
     // All `Vec`s should be the same length
     let nviews = xs.len();
@@ -58,7 +97,8 @@ pub fn ceres_bundle_adjustment(
     let mut x3de = x3d.to_eigen();
 
     // Perform bundle adjustment
-    let result = ffi::ceres_bundle_adjustment(&xse, &mut kse, &mut tse, &mut rse, &mut x3de);
+    let result =
+        ffi::ceres_bundle_adjustment(&xse, &mut kse, &mut tse, &mut rse, &mut x3de, opts.into());
 
     // Only proceed if bundle adjustment succeeded
     if result {
@@ -213,8 +253,13 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_real_pose_ceres_bundle_adjustment() {
+    fn real_pose_sfm_data() -> (
+        Vec<Matrix2xX<f64>>,
+        Vec<Matrix3<f64>>,
+        Vec<Vector3<f64>>,
+        Vec<Matrix3<f64>>,
+        Matrix3xX<f64>,
+    ) {
         let nviews = 3;
         // let npoints = 13;
 
@@ -458,27 +503,131 @@ mod tests {
             -10.43326768,
         ]);
 
+        return (xs, rs, ts, ks, x3d);
+    }
+
+    use more_asserts::{assert_gt, assert_le};
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: false,
+        camera_translation: false,
+        camera_intrinsics: false,
+        pose3d: false,
+    })]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: true,
+        camera_translation: false,
+        camera_intrinsics: false,
+        pose3d: false,
+    })]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: false,
+        camera_translation: true,
+        camera_intrinsics: false,
+        pose3d: false,
+    })]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: false,
+        camera_translation: false,
+        camera_intrinsics: true,
+        pose3d: false,
+    })]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: false,
+        camera_translation: false,
+        camera_intrinsics: false,
+        pose3d: true,
+    })]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: true,
+        camera_translation: true,
+        camera_intrinsics: true,
+        pose3d: true,
+    })]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: false,
+        camera_translation: true,
+        camera_intrinsics: true,
+        pose3d: true,
+    })]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: true,
+        camera_translation: false,
+        camera_intrinsics: true,
+        pose3d: true,
+    })]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: true,
+        camera_translation: true,
+        camera_intrinsics: false,
+        pose3d: true,
+    })]
+    #[case(BundleAdjustmentOptions {
+        camera_rotation: true,
+        camera_translation: true,
+        camera_intrinsics: true,
+        pose3d: false,
+    })]
+    fn check_ba_yields_expected_changes(#[case] opts: BundleAdjustmentOptions) {
+        let (xs, mut rs, mut ts, mut ks, mut x3d) = real_pose_sfm_data();
+
+        // NOTE: OpenMVG's Pinhole Camera requires f = fx = fy, so it modifies K
+        // immediately, even if nothing changes during the bundle adjustment.
+        // To account for this, we'll make this change ahead of time.
+        for k in ks.iter_mut() {
+            let mean = (k[(0, 0)] + k[(1, 1)]) / 2.0;
+            k[(0, 0)] = mean;
+            k[(1, 1)] = mean;
+        }
+
         // Copy values before mutating to compare later
         let ksc = ks.clone();
         let tsc = ts.clone();
         let rsc = rs.clone();
         let x3dc = x3d.clone();
+        let optsc = opts.clone();
 
         // Perform BA
-        let result = ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d);
+        let result = ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d, Some(opts));
 
         // The BA should suceed
         assert_eq!(result, true);
-        // No parameters should remain identical
+
+        // Check that only the expected values changed
+        let max_err = 1e-3;
+
+        let err_x3d = (&x3dc - &x3d).norm() / x3dc.norm();
+        if optsc.pose3d {
+            assert_gt!(err_x3d, max_err);
+            // assert_relative_eq!(x3dc, x3d, max_relative = max_relative);
+        } else {
+            assert_le!(err_x3d, max_err);
+        }
         for (k, kc) in ks.iter().zip(ksc.iter()) {
-            assert_ne!(k, kc);
+            let err_k = (kc - k).norm() / kc.norm();
+            if optsc.camera_intrinsics {
+                assert_gt!(err_k, max_err);
+            } else {
+                assert_le!(err_k, max_err);
+            }
         }
         for (t, tc) in ts.iter().zip(tsc.iter()) {
-            assert_ne!(t, tc);
+            let err_t = (tc - t).norm() / tc.norm();
+            if optsc.camera_translation {
+                assert_gt!(err_t, max_err);
+            } else {
+                assert_le!(err_t, max_err);
+            }
         }
         for (r, rc) in rs.iter().zip(rsc.iter()) {
-            assert_ne!(r, rc);
+            let err_r = (rc - r).norm() / rc.norm();
+            if optsc.camera_rotation {
+                assert_gt!(err_r, max_err);
+            } else {
+                assert_le!(err_r, max_err);
+            }
         }
-        assert_ne!(x3d, x3dc);
     }
 }
