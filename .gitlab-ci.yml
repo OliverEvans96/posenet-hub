@@ -51,7 +51,7 @@ build-image:
 pages:
   stage: doc
   needs: []
-  image: 'rust:latest'
+  image: $CI_REGISTRY_IMAGE/rust-deps
   script:
     - cargo doc --no-deps
     - mv target/doc public
