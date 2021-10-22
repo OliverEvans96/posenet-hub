@@ -20,7 +20,8 @@ RUN cmake -DCMAKE_BUILD_TYPE=RELEASE \
           -DOpenMVG_BUILD_SOFTWARES=OFF \
           -DOpenMVG_USE_OPENMP=OFF \
           -DUSE_OPENMP=OFF \
-          -DOPENMP=OFF \ # Disable OpenMP in Ceres
+          # Disable OpenMP in Ceres
+          -DOPENMP=OFF \
           -DTARGET_ARCHITECTURE=generic \
           ../openMVG/src
 RUN make -j$(nprocs)
