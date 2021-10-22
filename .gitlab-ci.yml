@@ -52,6 +52,8 @@ pages:
   stage: doc
   needs: []
   image: $CI_REGISTRY_IMAGE/rust-deps
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
   script:
     - cargo doc --no-deps
     - mv target/doc public
