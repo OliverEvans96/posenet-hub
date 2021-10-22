@@ -13,6 +13,15 @@ The following must be available as system libraries:
 
 ## Development
 
+### Docker
+
+To use Docker for local development, run `./develop.sh`.
+This will watch for changes to relevant files, and automatically rebuild the image and restart the container.
+
+This requires `docker` and `nodemon` to be installed locally.
+
+### Non-docker
+
 ```
 cargo build
 ```
