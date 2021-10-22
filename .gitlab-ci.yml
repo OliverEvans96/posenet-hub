@@ -69,6 +69,8 @@ test:
   needs: []
   image:
     name: $CI_REGISTRY_IMAGE/rust-deps
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
   script:
     - rustc --version
     - cargo --version
