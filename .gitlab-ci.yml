@@ -70,4 +70,4 @@ test:
   script:
     - rustc --version
     - cargo --version
-    - cargo test --releaese --verbose
+    - cargo test --release --verbose
