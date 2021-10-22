@@ -58,7 +58,7 @@ pages:
     paths:
       - public
   only:
-    - master
+    - main
 
 test:
   stage: test
