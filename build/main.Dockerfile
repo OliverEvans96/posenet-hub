@@ -19,8 +19,6 @@ COPY src/ ./src
 COPY tests/ ./tests
 # Build the project
 RUN cargo build --release
-# Make sure everything is working
-RUN cargo test --release
 
 # The final image only needs the compiled binaries
 FROM ubuntu
