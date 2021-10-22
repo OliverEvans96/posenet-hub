@@ -32,6 +32,7 @@ build-rust-deps:
 
 build-image:
   stage: build
+  needs: []
   except:
     refs:
     - cpp-deps
@@ -49,6 +50,7 @@ build-image:
 # https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
 pages:
   stage: doc
+  needs: []
   image: 'rust:latest'
   script:
     - cargo doc --no-deps
@@ -62,6 +64,7 @@ pages:
 
 test:
   stage: test
+  needs: []
   image:
     name: $CI_REGISTRY_IMAGE/rust-deps
   script:
