@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: "gitlab-registry.nrp-nautilus.io/librareome/posenet/posenet-hub/docs:latest"
+          image: "gitlab-registry.nrp-nautilus.io/librareome/posenet/posenet-hub/docs:$CI_COMMIT_SHORT_SHA"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
