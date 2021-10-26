@@ -1,11 +1,14 @@
 
 stages:
   - build
-  - doc
   - test
+  - doc
+  - deploy
 
 build-cpp-deps:
   stage: build
+  needs: []
+  artifacts: []
   only:
     refs:
     - cpp-deps
@@ -19,6 +22,8 @@ build-cpp-deps:
 
 build-rust-deps:
   stage: build
+  needs: []
+  artifacts: []
   only:
     refs:
     - rust-deps
@@ -33,6 +38,7 @@ build-rust-deps:
 build-image:
   stage: build
   needs: []
+  artifacts: []
   except:
     refs:
     - cpp-deps
@@ -47,26 +53,10 @@ build-image:
       # Tag images with git commit SHAs
     - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/main.Dockerfile --destination $CI_REGISTRY_IMAGE:latest --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --build-arg SRC_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
 
-# https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
-pages:
-  stage: doc
-  needs: []
-  image: $CI_REGISTRY_IMAGE/rust-deps
-  variables:
-    GIT_SUBMODULE_STRATEGY: recursive
-  script:
-    - cargo doc --no-deps
-    - mv target/doc public
-    - echo '<meta http-equiv="refresh" content="0; url={{ LIBRARY NAME }}">' > public/index.html
-  artifacts:
-    paths:
-      - public
-  only:
-    - main
-
 test:
   stage: test
   needs: []
+  artifacts: []
   image:
     name: $CI_REGISTRY_IMAGE/rust-deps
   variables:
@@ -75,3 +65,29 @@ test:
     - rustc --version
     - cargo --version
     - cargo test --release --verbose
+
+# https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
+build-docs:
+  stage: doc
+  needs: []
+  artifacts:
+    paths:
+      - target/doc
+  only:
+    - main
+  image: $CI_REGISTRY_IMAGE/rust-deps
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  script:
+    - cargo doc --no-deps
+
+deploy-docs:
+  stage: deploy
+  needs:
+    - build-docs
+  artifacts:
+    paths:
+      - target/doc
+  image: rclone/rclone
+  script:
+    - rclone sync target/doc ceph-s3:posenet-hub-docs
