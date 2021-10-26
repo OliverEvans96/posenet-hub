@@ -79,7 +79,7 @@ build-docs:
   variables:
     GIT_SUBMODULE_STRATEGY: recursive
   script:
-    - cargo doc --no-deps
+    - cargo doc --no-deps --document-private-items
 
 deploy-docs:
   stage: deploy
