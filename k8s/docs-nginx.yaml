@@ -1,6 +1,4 @@
 ---
-# NOTE: The pod needs to be restarted to observe
-# changes in the NGINX config
 apiVersion: apps/v1
 kind: Deployment
 metadata:
