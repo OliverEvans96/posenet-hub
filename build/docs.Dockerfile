@@ -24,7 +24,7 @@ RUN cargo doc --no-deps --document-private-items
 
 FROM nginx:1.17.10
 
-COPY --from=build /app/target/doc /var/www
+COPY --from=build /usr/local/src/posenet-hub/target/doc /var/www
 
 ADD build/nginx.conf /etc/nginx/conf.d/default.conf
 
