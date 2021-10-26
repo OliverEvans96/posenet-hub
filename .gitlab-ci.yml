@@ -8,7 +8,7 @@ stages:
 build-cpp-deps:
   stage: build
   needs: []
-  artifacts: []
+  dependencies: []
   only:
     refs:
     - cpp-deps
@@ -23,7 +23,7 @@ build-cpp-deps:
 build-rust-deps:
   stage: build
   needs: []
-  artifacts: []
+  dependencies: []
   only:
     refs:
     - rust-deps
@@ -38,7 +38,7 @@ build-rust-deps:
 build-image:
   stage: build
   needs: []
-  artifacts: []
+  dependencies: []
   except:
     refs:
     - cpp-deps
@@ -56,7 +56,7 @@ build-image:
 test:
   stage: test
   needs: []
-  artifacts: []
+  dependencies: []
   image:
     name: $CI_REGISTRY_IMAGE/rust-deps
   variables:
@@ -85,9 +85,8 @@ deploy-docs:
   stage: deploy
   needs:
     - build-docs
-  artifacts:
-    paths:
-      - target/doc
+  dependencies:
+    - build-docs
   image: rclone/rclone
   script:
     - rclone sync target/doc ceph-s3:posenet-hub-docs
