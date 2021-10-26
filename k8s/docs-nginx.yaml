@@ -1,0 +1,149 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: posenet-hub-docs-nginx
+  namespace: posenet
+  labels:
+    app: nginx
+    subject: posenet-hub-docs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+      subject: posenet-hub-docs
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: nginx
+        subject: posenet-hub-docs
+    spec:
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: posenet-docs-nginx-config
+        - name: ceph-s3-credentials
+          secret:
+            secretName: ceph-s3-credentials
+        - name: shared-volume
+          emptyDir: {}
+
+      # initContainers:
+      #   - name: create-subdir
+      #     image: alpine
+      #     resources:
+      #       limits:
+      #         memory: 500M
+      #         cpu: "1"
+      #       requests:
+      #         memory: 500M
+      #         cpu: "1"
+      #     # This containerized version of s3fs requires
+      #     # that a folder with the name of the bucket
+      #     # already exists
+      #     command: ["sh", "-c", "mkdir /mnt/${AWS_S3_BUCKET}"]
+      #     envFrom:
+      #       - configMapRef:
+      #           name: posenet-docs-ceph-s3-config
+      #     volumeMounts:
+      #       - name: shared-volume
+      #         mountPath: /mnt
+
+      containers:
+        - name: nginx
+          image: nginx
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              memory: 4Gi
+              cpu: "2"
+            requests:
+              memory: 1Gi
+              cpu: "1"
+
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: shared-volume
+              mountPath: /var/www
+
+        - name: s3fs
+          image: efrecon/s3fs
+          imagePullPolicy: IfNotPresent
+
+          # Required for FUSE mount
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - SYS_ADMIN
+
+          envFrom:
+            - secretRef:
+                name: ceph-s3-credentials
+            - configMapRef:
+                name: posenet-docs-ceph-s3-config
+
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: "1"
+            requests:
+              memory: 1Gi
+              cpu: "1"
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: shared-volume
+              mountPath: /ceph
+            - name: ceph-s3-credentials
+              mountPath: /run/secrets/aws
+      
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: posenet-docs-ceph-s3-config
+data:
+  # List of options: https://hub.docker.com/r/efrecon/s3fs
+  AWS_S3_BUCKET: posenet-hub-docs
+  AWS_S3_MOUNT: /ceph
+  AWS_S3_URL: http://rook-ceph-rgw-nautiluss3.rook 
+  S3FS_ARGS: "-o use_path_request_style" # -o umask=0007,uid=$UID"
+
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: posenet-docs-nginx-config
+data:
+  # Inspired by:
+  # - https://www.netnea.com/cms/nginx-tutorial-2_minimal-nginx-configuration/
+  # - http://nginx.org/en/docs/beginners_guide.html#static
+  # - https://www.nginx.com/resources/wiki/start/topics/examples/full/
+  nginx.conf: |-
+    worker_processes  2;
+    user              www-data;
+
+    events {
+        use           epoll;
+        worker_connections  128;
+    }
+
+    http {
+      server { # simple reverse-proxy
+        listen       80;
+        server_name  posenet-hub-docs.nrp-nautilus.io;
+
+        location / {
+          root /var/www;
+        }
+      }
+    }
