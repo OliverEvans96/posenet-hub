@@ -1,4 +1,7 @@
 ---
+# NOTE: This setup is not ideal, because
+# the pod needs to be restarted to observe
+# changes in either the S3 bucket or NGINX config
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -85,6 +88,7 @@ data:
   # - https://www.netnea.com/cms/nginx-tutorial-2_minimal-nginx-configuration/
   # - http://nginx.org/en/docs/beginners_guide.html#static
   # - https://www.nginx.com/resources/wiki/start/topics/examples/full/
+  # - https://blog.gastove.com/blog/2020-05-30--self-hosting-rust
   nginx.conf: |-
     worker_processes  2;
     user              www-data;
@@ -101,6 +105,8 @@ data:
 
         location / {
           root /var/www;
+          include  /etc/nginx/mime.types;
+          rewrite ^/$ posenet_vr_hub/index.html redirect;
         }
       }
     }
