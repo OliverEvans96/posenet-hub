@@ -95,5 +95,4 @@ deploy-k8s:
     kubernetes:
       namespace: posenet
   script:
-    - set -x
     - cat k8s/*.yaml | envsubst '$CI_COMMIT_REF_NAME $CI_COMMIT_SHORT_SHA' | kubectl apply -f -
