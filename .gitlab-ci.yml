@@ -90,6 +90,8 @@ deploy-k8s:
       - main
   # Use appropriate service account with deploy permissions
   # via Gitlab k8s cluster integration on posenet group
+  # See https://gitlab.nrp-nautilus.io/librareome/posenet/k8s
+  # for an overview of how this works
   environment:
     name: posenet
     kubernetes:
