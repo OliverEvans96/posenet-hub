@@ -88,5 +88,11 @@ deploy-k8s:
   only:
     refs:
       - main
+  # Use appropriate service account with deploy permissions
+  # via Gitlab k8s cluster integration on posenet group
+  environment:
+    name: posenet
+    kubernetes:
+      namespace: posenet
   script:
     - cat k8s/*.yaml | envsubst '$CI_COMMIT_REF_NAME $CI_COMMIT_SHORT_SHA' | kubectl apply -f -
