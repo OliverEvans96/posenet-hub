@@ -1,7 +1,6 @@
 ---
-# NOTE: This setup is not ideal, because
-# the pod needs to be restarted to observe
-# changes in either the S3 bucket or NGINX config
+# NOTE: The pod needs to be restarted to observe
+# changes in the NGINX config
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,12 +33,12 @@ spec:
         - name: shared-volume
           emptyDir: {}
 
-      initContainers:
+      containers:
         - name: rclone
           image: rclone/rclone
           imagePullPolicy: IfNotPresent
 
-          command: ["rclone", "sync", "ceph-s3:posenet-hub-docs", "/ceph"]
+          command: ["watch", "-n", "60", "rclone", "sync", "ceph-s3:posenet-hub-docs", "/ceph"]
 
           resources:
             limits:
@@ -57,7 +56,6 @@ spec:
             - name: rclone-config
               mountPath: /config/rclone
 
-      containers:
         - name: nginx
           image: nginx
           imagePullPolicy: IfNotPresent
