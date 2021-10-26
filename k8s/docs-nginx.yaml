@@ -23,41 +23,9 @@ spec:
         app: nginx
         subject: posenet-hub-docs
     spec:
-      volumes:
-        - name: nginx-config
-          configMap:
-            name: posenet-docs-nginx-config
-        - name: rclone-config
-          secret:
-            secretName: ceph-s3-rclone-conf
-        - name: shared-volume
-          emptyDir: {}
-
       containers:
-        - name: rclone
-          image: rclone/rclone
-          imagePullPolicy: IfNotPresent
-
-          command: ["watch", "-n", "60", "rclone", "sync", "ceph-s3:posenet-hub-docs", "/ceph"]
-
-          resources:
-            limits:
-              memory: 1Gi
-              cpu: "1"
-            requests:
-              memory: 1Gi
-              cpu: "1"
-          volumeMounts:
-            - name: nginx-config
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
-            - name: shared-volume
-              mountPath: /ceph
-            - name: rclone-config
-              mountPath: /config/rclone
-
         - name: nginx
-          image: nginx
+          image: "gitlab-registry.nrp-nautilus.io/librareome/posenet/posenet-hub/docs:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
@@ -68,46 +36,6 @@ spec:
             requests:
               memory: 1Gi
               cpu: "1"
-
-          volumeMounts:
-            - name: nginx-config
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
-            - name: shared-volume
-              mountPath: /var/www
-
----
-kind: ConfigMap
-apiVersion: v1
-metadata:
-  name: posenet-docs-nginx-config
-data:
-  # Inspired by:
-  # - https://www.netnea.com/cms/nginx-tutorial-2_minimal-nginx-configuration/
-  # - http://nginx.org/en/docs/beginners_guide.html#static
-  # - https://www.nginx.com/resources/wiki/start/topics/examples/full/
-  # - https://blog.gastove.com/blog/2020-05-30--self-hosting-rust
-  nginx.conf: |-
-    worker_processes  2;
-    user              www-data;
-
-    events {
-        use           epoll;
-        worker_connections  128;
-    }
-
-    http {
-      server { # simple reverse-proxy
-        listen       80;
-        server_name  posenet-hub-docs.nrp-nautilus.io;
-
-        location / {
-          root /var/www;
-          include  /etc/nginx/mime.types;
-          rewrite ^/$ posenet_vr_hub/index.html redirect;
-        }
-      }
-    }
 
 ---
 apiVersion: v1

@@ -66,27 +66,18 @@ test:
     - cargo --version
     - cargo test --release --verbose
 
-# https://users.rust-lang.org/t/my-gitlab-config-docs-tests/16396
 build-docs:
-  stage: doc
+  stage: build
   needs: []
-  artifacts:
-    paths:
-      - target/doc
+  dependencies: []
   only:
     - main
-  image: $CI_REGISTRY_IMAGE/rust-deps
   variables:
     GIT_SUBMODULE_STRATEGY: recursive
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
   script:
-    - cargo doc --no-deps --document-private-items
-
-deploy-docs:
-  stage: deploy
-  needs:
-    - build-docs
-  dependencies:
-    - build-docs
-  image: rclone/rclone
-  script:
-    - rclone sync target/doc ceph-s3:posenet-hub-docs
+    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+      # Tag images with git commit SHAs
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/docs.Dockerfile --destination $CI_REGISTRY_IMAGE/docs:latest --destination $CI_REGISTRY_IMAGE/docs:$CI_COMMIT_SHORT_SHA --build-arg SRC_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
