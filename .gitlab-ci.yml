@@ -87,6 +87,6 @@ deploy-k8s:
   stage: deploy
   only:
     refs:
-      - master
+      - main
   script:
     - cat k8s/*.yaml | envsubst '$CI_COMMIT_REF_NAME $CI_COMMIT_SHORT_SHA' | kubectl apply -f -
