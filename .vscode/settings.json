@@ -4,7 +4,8 @@
     "rust-analyzer.procMacro.enable": true,
     // rust-analyzer can't deal with some of cxx
     "rust-analyzer.diagnostics.disabled": [
-        "missing-unsafe"
+        "missing-unsafe",
+        "mismatched-arg-count"
     ],
     // Fix proto imports
     "protoc": {

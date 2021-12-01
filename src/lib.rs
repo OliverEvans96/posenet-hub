@@ -8,4 +8,5 @@ pub mod grpc;
 pub mod openmvg;
 pub mod triangulator;
 mod utils;
+mod errors;
 pub mod vrpn;

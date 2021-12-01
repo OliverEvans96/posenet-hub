@@ -1,17 +1,19 @@
 use async_std::channel;
 use nalgebra::{Matrix3, Matrix3x4, Point2, Point3};
 use std::cmp;
+use std::convert::{TryFrom, TryInto};
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 use std::{collections::HashMap, time::Duration};
-
+use thiserror::Error;
 use tokio::{sync::broadcast, time::sleep, try_join};
 
 use crate::controller::BoxError;
+use crate::grpc::proto;
 use crate::grpc::proto::{CameraInfo, Pose2D, Pose3D, SPoint2, SPoint3};
-use crate::grpc::server::LabeledPoses2D;
 use crate::openmvg::openmvg::triangulate_many;
 use crate::utils::transpose_vecvec;
+use crate::errors::{MissingField,CalculationError};
 
 #[derive(Debug, Clone)]
 pub struct TriangulatorConfig {
@@ -60,9 +62,23 @@ fn collect_points_by_keypoint(poses: Vec<Pose2D>) -> Vec<Vec<SPoint2>> {
     points_grouped_by_keypoint
 }
 
-pub fn calculate_camera_matrix(info: &CameraInfo) -> Option<Matrix3x4<f64>> {
-    let intrinsics = info.intrinsics.as_ref()?;
-    let extrinsics = info.extrinsics.as_ref()?;
+pub fn calculate_camera_matrix(
+    calibration: &proto::CalibrationParameters,
+) -> Result<Matrix3x4<f64>, CalculationError> {
+    let intrinsics =
+        calibration
+            .intrinsics
+            .as_ref()
+            .ok_or(CalculationError::CameraMatrixFailed(
+                MissingField::Intrinsics,
+            ))?;
+    let extrinsics =
+        calibration
+            .extrinsics
+            .as_ref()
+            .ok_or(CalculationError::CameraMatrixFailed(
+                MissingField::Extrinsics,
+            ))?;
 
     let c = &intrinsics.camera_matrix;
     let k = Matrix3::new(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8]);
@@ -73,7 +89,7 @@ pub fn calculate_camera_matrix(info: &CameraInfo) -> Option<Matrix3x4<f64>> {
     );
 
     let p = k * rt;
-    Some(p)
+    Ok(p)
 }
 
 pub fn triangulate_from_poses_and_camera_matrices(
@@ -118,10 +134,10 @@ pub struct Triangulator {
     config: TriangulatorConfig,
     group_name: String,
     cameras_rx: channel::Receiver<CameraInfo>,
-    poses2d_rx: channel::Receiver<LabeledPoses2D>,
+    snapshots_rx: channel::Receiver<proto::Snapshot>,
     poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     cameras: Arc<RwLock<HashMap<String, CameraState>>>,
-    poses: Arc<RwLock<HashMap<String, LabeledPoses2D>>>,
+    poses: Arc<RwLock<HashMap<String, proto::Snapshot>>>,
 }
 
 impl Triangulator {
@@ -129,14 +145,14 @@ impl Triangulator {
         config: TriangulatorConfig,
         group_name: String,
         cameras_rx: channel::Receiver<CameraInfo>,
-        poses2d_rx: channel::Receiver<LabeledPoses2D>,
+        snapshots_rx: channel::Receiver<proto::Snapshot>,
         poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     ) -> Self {
         Self {
             config,
             group_name,
             cameras_rx,
-            poses2d_rx,
+            snapshots_rx,
             poses3d_tx,
             cameras: Arc::new(RwLock::new(HashMap::new())),
             poses: Arc::new(RwLock::new(HashMap::new())),
@@ -157,7 +173,7 @@ impl Triangulator {
         let mut count: i32 = 0;
         loop {
             // Get current poses
-            let current = self.get_current_poses();
+            let current = self.get_current_snapshot();
 
             // Group by user
             let users = self.group_poses_and_cameras_by_user(current);
@@ -208,46 +224,75 @@ impl Triangulator {
 
     async fn listen_for_poses(&self) -> Result<(), BoxError> {
         loop {
-            let labeled = self.poses2d_rx.recv().await?;
+            let snapshot = self.snapshots_rx.recv().await?;
+            let camera_name = snapshot
+                .which_camera
+                .clone()
+                .map(|which_camera| which_camera.camera_name)
+                .ok_or(MissingField::CameraName)?;
             self.poses
                 .write()
                 .expect("poses_hm lock poisoned!")
-                .insert(labeled.camera_name.clone(), labeled);
+                .insert(camera_name, snapshot);
         }
     }
 
     async fn listen_for_cameras(&self) -> Result<(), BoxError> {
         loop {
             let camera = self.cameras_rx.recv().await?;
-            let matrix =
-                calculate_camera_matrix(&camera).expect("error in calculate camera matrix");
+            let camera_name = camera
+                .which_camera
+                .as_ref()
+                .map(|which_camera| which_camera.camera_name.clone())
+                .ok_or(MissingField::CameraName)?;
+            let group_name = camera
+                .which_camera
+                .as_ref()
+                .map(|which_camera| which_camera.group_name.clone())
+                .ok_or(MissingField::GroupName)?;
+            let calibration = camera
+                .calibration
+                .clone()
+                .ok_or(MissingField::Calibration)?;
+            let matrix = calculate_camera_matrix(&calibration)?;
             let state = CameraState {
                 info: camera,
                 matrix,
             };
             println!(
                 "New camera --> {}:{}",
-                state.info.group_name.clone(),
-                state.info.camera_name.clone()
+                group_name.clone(),
+                camera_name.clone()
             );
             self.cameras
                 .write()
                 .expect("cameras_hm lock poisoned!")
-                .insert(state.info.camera_name.clone(), state);
+                .insert(camera_name.clone(), state);
         }
     }
 
-    fn get_current_poses(&self) -> Vec<LabeledPoses2D> {
+    fn get_current_snapshot(&self) -> Vec<proto::Snapshot> {
         self.poses
             .read()
             .expect("state lock poisoned!")
             .values()
-            .filter(|&p| p.time.elapsed() < self.config.pose_expiration)
-            .map(|p| p.clone())
-            .collect::<Vec<_>>()
+            .filter_map(|snapshot| {
+                // If the snapshot has a timestamp and we can parse it, make sure it isn't expired.
+                // If we can't parse the timestamp, ignore this snapshot.
+                let timestamp = snapshot.timestamp?;
+                let system_time = SystemTime::try_from(timestamp).ok()?;
+                let elapsed = system_time.elapsed().ok()?;
+
+                if elapsed < self.config.pose_expiration {
+                    Some(snapshot.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
-    fn get_pose_for_user(&self, pose: &LabeledPoses2D, user_id: usize) -> Option<Pose2D> {
+    fn get_pose_for_user(&self, pose: &proto::Snapshot, user_id: usize) -> Option<Pose2D> {
         // TODO identify user somehow, so that poses from different cameras can be grouped
         // delta from previous frames? or use image data somehow, facial recognition?
         // for now just returned in order sent from client, may be glitchy for multiple tracked users
@@ -256,18 +301,18 @@ impl Triangulator {
 
     fn group_poses_and_cameras_by_user(
         &self,
-        poses: Vec<LabeledPoses2D>,
+        snapshots: Vec<proto::Snapshot>,
     ) -> Vec<(Vec<Pose2D>, Vec<Matrix3x4<f64>>)> {
         let max_users = 1; // limit to 1 user for now
         (0..max_users)
             .map(|id| {
-                // TODO handle missing poses, and remove corresponding camera matrix
-                let user_poses = (&poses)
+                // TODO handle missing snapshots, and remove corresponding camera matrix
+                let user_snapshots = (&snapshots)
                     .into_iter()
                     .map(|labeled| self.get_pose_for_user(labeled, id).unwrap())
                     .collect();
-                let camera_matrices = self.get_cameras_for_poses(&poses);
-                (user_poses, camera_matrices)
+                let camera_matrices = self.get_cameras_for_snapshots(&snapshots);
+                (user_snapshots, camera_matrices)
             })
             .collect()
     }
@@ -278,11 +323,17 @@ impl Triangulator {
         Some(camera.matrix)
     }
 
-    fn get_cameras_for_poses(&self, poses: &[LabeledPoses2D]) -> Vec<Matrix3x4<f64>> {
-        poses
+    fn get_cameras_for_snapshots(&self, snapshots: &[proto::Snapshot]) -> Vec<Matrix3x4<f64>> {
+        snapshots
             .iter()
-            .map(|pose| {
-                self.get_camera_matrix(&pose.camera_name)
+            .map(|snapshot| {
+                let camera_name = snapshot
+                    .which_camera
+                    .as_ref()
+                    .map(|which_camera| which_camera.camera_name.as_ref())
+                    .ok_or(MissingField::CameraName)
+                    .unwrap();
+                self.get_camera_matrix(camera_name)
                     .expect("Error while getting camera matrix")
             })
             .collect()

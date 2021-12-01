@@ -1,9 +1,14 @@
 tonic::include_proto!("posenet_vr");
 
+use super::proto;
+use super::proto::{camera_control_command, stream_control_request};
+
 use rand::{distributions::Standard, prelude::Distribution};
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::error::Error;
+use std::fmt::Display;
 use std::path::Path;
+use uuid::Uuid;
 
 use crate::utils::pop_n;
 
@@ -12,6 +17,27 @@ const NUM_KEYPOINTS: usize = 17;
 const NDIM: usize = 4;
 // (x,y,z, score) for 17 keypoints + pose score
 const NUM_CHANNELS: usize = NDIM * NUM_KEYPOINTS + 1;
+
+impl proto::SessionToken {
+    pub fn new() -> Self {
+        Self {
+            data: Uuid::new_v4().to_string(),
+        }
+    }
+}
+
+impl proto::CommandToken {
+    pub fn new() -> Self {
+        Self {
+            data: Uuid::new_v4().to_string(),
+        }
+    }
+}
+
+pub enum CommandResponseMessage {
+    Begin,
+    Data(proto::CommandResponse),
+}
 
 // type aliases for scored nalgebra tuples
 pub type SPoint2 = (nalgebra::Point2<f64>, f64);
@@ -315,7 +341,7 @@ impl Distribution<Pose3D> for Standard {
     }
 }
 
-impl From<image::DynamicImage> for ImageData {
+impl From<image::DynamicImage> for proto::Image {
     fn from(img: image::DynamicImage) -> Self {
         let rgb_img = img.to_rgb8();
         let (width, height) = rgb_img.dimensions();
@@ -327,25 +353,87 @@ impl From<image::DynamicImage> for ImageData {
     }
 }
 
-impl ImageData {
+impl proto::Image {
     /// Read image from file
     pub fn from_path(image_path: &Path) -> Result<Self, Box<dyn Error>> {
         Ok(image::open(image_path)?.into())
     }
 }
 
-impl Distribution<ImageData> for Standard {
-    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> ImageData {
+impl Distribution<proto::Image> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> proto::Image {
         let width: usize = 30;
         let height: usize = 10;
         let num_pixels = width * height;
         // Three channels: (R, G, B) for each pixel
         let num_bytes = 3 * num_pixels;
 
-        ImageData {
+        proto::Image {
             width: width.try_into().unwrap(),
             height: height.try_into().unwrap(),
             data: (0..num_bytes).map(|_| rng.gen()).collect(),
+        }
+    }
+}
+
+// TODO: This doesn't seem like the best error-handling approach
+// (this should be one variant of an enum, and it's more general than proto.rs)
+#[derive(Debug)]
+pub struct MissingFieldError {
+    field_name: String,
+}
+
+impl MissingFieldError {
+    fn new(field_name: String) -> Self {
+        Self { field_name }
+    }
+}
+
+impl Display for MissingFieldError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("Error: Missing field '{}'", self.field_name))
+    }
+}
+
+impl Error for MissingFieldError {}
+
+pub struct CameraUniqueIdentifier {
+    group_name: String,
+    camera_name: String,
+}
+
+impl TryFrom<proto::CameraIdentifier> for CameraUniqueIdentifier {
+    type Error = MissingFieldError;
+
+    fn try_from(value: proto::CameraIdentifier) -> Result<Self, Self::Error> {
+        let proto::CameraIdentifier {
+            group_name,
+            camera_name,
+        } = value;
+        if !camera_name.is_empty() {
+            if !group_name.is_empty() {
+                Ok(Self {
+                    group_name,
+                    camera_name,
+                })
+            } else {
+                Err(MissingFieldError::new("group_name"))
+            }
+        } else {
+            Err(MissingFieldError::new("camera_name"))
+        }
+    }
+}
+
+impl From<CameraUniqueIdentifier> for proto::CameraIdentifier {
+    fn from(value: CameraUniqueIdentifier) -> Self {
+        let CameraIdentifier {
+            group_name,
+            camera_name,
+        } = value;
+        Self {
+            group_name,
+            camera_name,
         }
     }
 }
