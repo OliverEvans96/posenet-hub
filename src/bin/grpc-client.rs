@@ -5,7 +5,7 @@ use structopt::StructOpt;
 
 use posenet_vr_hub::grpc::client as grpc_client;
 use posenet_vr_hub::grpc::proto::hub_service_client::HubServiceClient;
-use posenet_vr_hub::grpc::proto::ImageData;
+use posenet_vr_hub::grpc::proto::Image;
 use tonic::transport::Channel;
 
 #[derive(Debug, StructOpt)]
@@ -154,7 +154,7 @@ async fn offer_snapshots(
     log::info!("Waiting for snapshot request in group '{}'", &group_name);
 
     let image_data = if let Some(image_path) = image_path {
-        Some(ImageData::from_path(&image_path)?)
+        Some(Image::from_path(&image_path)?)
     } else {
         None
     };

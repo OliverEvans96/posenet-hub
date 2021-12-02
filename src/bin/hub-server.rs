@@ -3,8 +3,8 @@ use async_std::channel;
 use tokio::{sync::broadcast, try_join};
 
 use posenet_vr_hub::controller::{BoxError, Controller};
-use posenet_vr_hub::grpc::proto::CameraInfo;
-use posenet_vr_hub::grpc::server::proto::Snapshot;
+use posenet_vr_hub::grpc::CameraInfo;
+use posenet_vr_hub::grpc::server::Snapshot;
 use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer};
 use posenet_vr_hub::triangulator::{LabeledPoses3D, TriangulatorConfig};
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
@@ -18,7 +18,7 @@ async fn main() -> Result<(), BoxError> {
 
     // Create communication channels
     let (cameras_tx, cameras_rx) = channel::unbounded::<CameraInfo>();
-    let (snapshots_tx, snapshots_rx) = channel::unbounded::<proto::Snapshot>();
+    let (snapshots_tx, snapshots_rx) = channel::unbounded::<Snapshot>();
     // let (poses3d_tx, poses3d_rx) = channel::unbounded::<Option<Pose3D>>();
     let (poses3d_bcast_tx, poses3d_bcast_rx) = broadcast::channel::<LabeledPoses3D>(100);
 

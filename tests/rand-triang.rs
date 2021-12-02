@@ -4,7 +4,7 @@
 // use std::thread;
 // use std::time::Duration;
 
-// use posenet_vr_hub::grpc::proto::Pose3D;
+// use posenet_vr_hub::grpc::Pose3D;
 // use posenet_vr_hub::triangulator::triangulate_from_poses_and_camera_matrices;
 
 // fn randomly_triangulate() -> Pose3D {

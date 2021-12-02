@@ -1,19 +1,16 @@
 use async_std::channel;
-use nalgebra::{Matrix3, Matrix3x4, Point2, Point3};
-use std::cmp;
-use std::convert::{TryFrom, TryInto};
+use nalgebra::{Matrix3, Matrix3x4, Point2};
+use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 use std::time::{Instant, SystemTime};
 use std::{collections::HashMap, time::Duration};
-use thiserror::Error;
 use tokio::{sync::broadcast, time::sleep, try_join};
 
 use crate::controller::BoxError;
-use crate::grpc::proto;
-use crate::grpc::proto::{CameraInfo, Pose2D, Pose3D, SPoint2, SPoint3};
+use crate::errors::{CalculationError, MissingField};
+use crate::grpc::proto::{CameraInfo, Pose2D, Pose3D, SPoint2, CalibrationParameters, Snapshot};
 use crate::openmvg::openmvg::triangulate_many;
 use crate::utils::transpose_vecvec;
-use crate::errors::{MissingField,CalculationError};
 
 #[derive(Debug, Clone)]
 pub struct TriangulatorConfig {
@@ -63,7 +60,7 @@ fn collect_points_by_keypoint(poses: Vec<Pose2D>) -> Vec<Vec<SPoint2>> {
 }
 
 pub fn calculate_camera_matrix(
-    calibration: &proto::CalibrationParameters,
+    calibration: &CalibrationParameters,
 ) -> Result<Matrix3x4<f64>, CalculationError> {
     let intrinsics =
         calibration
@@ -134,10 +131,10 @@ pub struct Triangulator {
     config: TriangulatorConfig,
     group_name: String,
     cameras_rx: channel::Receiver<CameraInfo>,
-    snapshots_rx: channel::Receiver<proto::Snapshot>,
+    snapshots_rx: channel::Receiver<Snapshot>,
     poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     cameras: Arc<RwLock<HashMap<String, CameraState>>>,
-    poses: Arc<RwLock<HashMap<String, proto::Snapshot>>>,
+    poses: Arc<RwLock<HashMap<String, Snapshot>>>,
 }
 
 impl Triangulator {
@@ -145,7 +142,7 @@ impl Triangulator {
         config: TriangulatorConfig,
         group_name: String,
         cameras_rx: channel::Receiver<CameraInfo>,
-        snapshots_rx: channel::Receiver<proto::Snapshot>,
+        snapshots_rx: channel::Receiver<Snapshot>,
         poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     ) -> Self {
         Self {
@@ -271,7 +268,7 @@ impl Triangulator {
         }
     }
 
-    fn get_current_snapshot(&self) -> Vec<proto::Snapshot> {
+    fn get_current_snapshot(&self) -> Vec<Snapshot> {
         self.poses
             .read()
             .expect("state lock poisoned!")
@@ -292,7 +289,7 @@ impl Triangulator {
             .collect()
     }
 
-    fn get_pose_for_user(&self, pose: &proto::Snapshot, user_id: usize) -> Option<Pose2D> {
+    fn get_pose_for_user(&self, pose: &Snapshot, user_id: usize) -> Option<Pose2D> {
         // TODO identify user somehow, so that poses from different cameras can be grouped
         // delta from previous frames? or use image data somehow, facial recognition?
         // for now just returned in order sent from client, may be glitchy for multiple tracked users
@@ -301,7 +298,7 @@ impl Triangulator {
 
     fn group_poses_and_cameras_by_user(
         &self,
-        snapshots: Vec<proto::Snapshot>,
+        snapshots: Vec<Snapshot>,
     ) -> Vec<(Vec<Pose2D>, Vec<Matrix3x4<f64>>)> {
         let max_users = 1; // limit to 1 user for now
         (0..max_users)
@@ -323,7 +320,7 @@ impl Triangulator {
         Some(camera.matrix)
     }
 
-    fn get_cameras_for_snapshots(&self, snapshots: &[proto::Snapshot]) -> Vec<Matrix3x4<f64>> {
+    fn get_cameras_for_snapshots(&self, snapshots: &[Snapshot]) -> Vec<Matrix3x4<f64>> {
         snapshots
             .iter()
             .map(|snapshot| {

@@ -11,6 +11,7 @@ use tokio::{
 use tonic::{transport::Channel, Request};
 
 use super::proto::hub_service_client::HubServiceClient;
+use super::proto::*;
 
 pub async fn hello(
     client: &mut HubServiceClient<Channel>,
@@ -65,13 +66,13 @@ fn generate_name() -> String {
 pub async fn stream_inner(
     group_name: String,
     camera_name: String,
-    tx: async_std::channel::Sender<proto::Snapshot>,
+    tx: async_std::channel::Sender<Snapshot>,
     rng: &mut ThreadRng,
 ) -> Result<(), Box<dyn Error>> {
     let nposes: u32 = 1000;
     for i in 0..nposes {
         println!("Sending pose {}", i);
-        let pose_message = proto::Snapshot {
+        let pose_message = Snapshot {
             group_name: group_name.clone(),
             camera_name: camera_name.clone(),
             poses: vec![rng.gen()],
@@ -94,7 +95,7 @@ pub async fn stream_poses(
 ) -> Result<(), Box<dyn Error>> {
     let mut rng = thread_rng();
     let buf_size = 10;
-    let (tx, rx) = async_std::channel::bounded::<proto::Snapshot>(buf_size);
+    let (tx, rx) = async_std::channel::bounded::<Snapshot>(buf_size);
     let request = Request::new(rx);
     println!("Sending request");
     let response_future = client.stream_poses(request);
@@ -108,17 +109,17 @@ pub async fn stream_poses(
 
 async fn handle_camera_snapshot_request(
     client: &mut HubServiceClient<Channel>,
-    request: proto::CameraSnapshotRequest,
+    request: CameraSnapshotRequest,
     group_name: String,
     camera_name: String,
-    image_data: Option<proto::Image>,
+    image_data: Option<Image>,
 ) -> Result<(), Box<dyn Error>> {
     log::info!("Handling snapshot request '{}'", &request.snapshot_id);
 
     let mut rng = thread_rng();
 
     // Construct response
-    let image_message = proto::Snapshot {
+    let image_message = Snapshot {
         // Need to clone strings each time we loop
         group_name: group_name.clone(),
         camera_name: camera_name.clone(),
@@ -127,7 +128,7 @@ async fn handle_camera_snapshot_request(
         timestamp: Some(SystemTime::now().into()),
     };
 
-    let snapshot_response = proto::CameraSnapshotResponse {
+    let snapshot_response = CameraSnapshotResponse {
         snapshot_id: request.snapshot_id.clone(),
         message: Some(image_message),
     };
@@ -151,7 +152,7 @@ async fn handle_camera_snapshot_request(
 pub async fn offer_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
-    image_data: Option<proto::Image>,
+    image_data: Option<Image>,
 ) -> Result<(), Box<dyn Error>> {
     // TODO: More logging
     let camera_name = generate_name();
@@ -188,8 +189,8 @@ pub async fn offer_snapshots(
 pub async fn get_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
-) -> Result<proto::ServerSnapshotResponse, Box<dyn Error>> {
-    let request = proto::ServerSnapshotRequest { group_name };
+) -> Result<ServerSnapshotResponse, Box<dyn Error>> {
+    let request = ServerSnapshotRequest { group_name };
     let response = client.get_snapshots(request).await?.into_inner();
     Ok(response)
 }
@@ -198,7 +199,7 @@ pub async fn get_snapshot_cameras(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
 ) -> Result<SnapshotCamerasResponse, Box<dyn Error>> {
-    let request = proto::ServerSnapshotRequest { group_name };
+    let request = ServerSnapshotRequest { group_name };
     let response = client.get_snapshot_cameras(request).await?.into_inner();
     Ok(response)
 }

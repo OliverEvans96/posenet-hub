@@ -1,7 +1,7 @@
 tonic::include_proto!("posenet_vr");
 
 use super::proto;
-use super::proto::{camera_control_command, stream_control_request};
+use super::{camera_control_command, stream_control_request};
 
 use rand::{distributions::Standard, prelude::Distribution};
 use std::convert::{TryFrom, TryInto};
@@ -18,7 +18,7 @@ const NDIM: usize = 4;
 // (x,y,z, score) for 17 keypoints + pose score
 const NUM_CHANNELS: usize = NDIM * NUM_KEYPOINTS + 1;
 
-impl proto::SessionToken {
+impl SessionToken {
     pub fn new() -> Self {
         Self {
             data: Uuid::new_v4().to_string(),
@@ -26,7 +26,7 @@ impl proto::SessionToken {
     }
 }
 
-impl proto::CommandToken {
+impl CommandToken {
     pub fn new() -> Self {
         Self {
             data: Uuid::new_v4().to_string(),
@@ -36,7 +36,7 @@ impl proto::CommandToken {
 
 pub enum CommandResponseMessage {
     Begin,
-    Data(proto::CommandResponse),
+    Data(CommandResponse),
 }
 
 // type aliases for scored nalgebra tuples
@@ -341,7 +341,7 @@ impl Distribution<Pose3D> for Standard {
     }
 }
 
-impl From<image::DynamicImage> for proto::Image {
+impl From<image::DynamicImage> for Image {
     fn from(img: image::DynamicImage) -> Self {
         let rgb_img = img.to_rgb8();
         let (width, height) = rgb_img.dimensions();
@@ -353,22 +353,22 @@ impl From<image::DynamicImage> for proto::Image {
     }
 }
 
-impl proto::Image {
+impl Image {
     /// Read image from file
     pub fn from_path(image_path: &Path) -> Result<Self, Box<dyn Error>> {
         Ok(image::open(image_path)?.into())
     }
 }
 
-impl Distribution<proto::Image> for Standard {
-    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> proto::Image {
+impl Distribution<Image> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Image {
         let width: usize = 30;
         let height: usize = 10;
         let num_pixels = width * height;
         // Three channels: (R, G, B) for each pixel
         let num_bytes = 3 * num_pixels;
 
-        proto::Image {
+        Image {
             width: width.try_into().unwrap(),
             height: height.try_into().unwrap(),
             data: (0..num_bytes).map(|_| rng.gen()).collect(),
@@ -402,11 +402,11 @@ pub struct CameraUniqueIdentifier {
     camera_name: String,
 }
 
-impl TryFrom<proto::CameraIdentifier> for CameraUniqueIdentifier {
+impl TryFrom<CameraIdentifier> for CameraUniqueIdentifier {
     type Error = MissingFieldError;
 
-    fn try_from(value: proto::CameraIdentifier) -> Result<Self, Self::Error> {
-        let proto::CameraIdentifier {
+    fn try_from(value: CameraIdentifier) -> Result<Self, Self::Error> {
+        let CameraIdentifier {
             group_name,
             camera_name,
         } = value;
@@ -425,7 +425,7 @@ impl TryFrom<proto::CameraIdentifier> for CameraUniqueIdentifier {
     }
 }
 
-impl From<CameraUniqueIdentifier> for proto::CameraIdentifier {
+impl From<CameraUniqueIdentifier> for CameraIdentifier {
     fn from(value: CameraUniqueIdentifier) -> Self {
         let CameraIdentifier {
             group_name,

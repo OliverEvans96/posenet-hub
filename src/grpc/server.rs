@@ -17,16 +17,13 @@ use tonic::{transport::Server, Request, Response, Status, Streaming};
 use crate::errors::MissingField;
 use crate::openmvg::openmvg::ceres_bundle_adjustment;
 
-// TODO: Avoid this name conflict?
-use super::proto;
-use super::proto::{camera_control_command, command_response, stream_control_request};
-use proto::hub_service_server::{HubService, HubServiceServer};
-use proto::{CameraUniqueIdentifier, CommandResponseMessage, MissingFieldError, SPoint2, SPoint3};
+use super::proto::hub_service_server::{HubService, HubServiceServer};
+use super::proto::*;
 
 pub struct HubServer {
     // TODO: Are these still necessary? Redundant with new structs at all?
-    cameras_tx: mpsc::Sender<proto::CameraInfo>,
-    snapshots_tx: mpsc::Sender<proto::Snapshot>,
+    cameras_tx: mpsc::Sender<CameraInfo>,
+    snapshots_tx: mpsc::Sender<Snapshot>,
     /// snapshot request stream channel senders,
     /// indexed by group name, then camera name
     ///
@@ -35,40 +32,39 @@ pub struct HubServer {
     // snapshot_offers: RwLock<HashMap<String, HashMap<String, SnapshotOffer>>>, // TODO: Remove
     /// Channels where incoming snapshots can be placed between
     /// get-snapshots request and response.
-    // snapshot_channels: RwLock<HashMap<String, mpsc::Sender<proto::Snapshot>>>, // TODO: Remove
+    // snapshot_channels: RwLock<HashMap<String, mpsc::Sender<Snapshot>>>, // TODO: Remove
 
     /// active camera session tokens
     /// indexed by group name, then camera name
-    session_tokens: RwLock<HashMap<String, RwLock<HashMap<String, proto::SessionToken>>>>,
+    session_tokens: RwLock<HashMap<String, RwLock<HashMap<String, SessionToken>>>>,
     /// Latest streamed snapshots
     /// indexed by group name, then camera name
-    stream_cache: RwLock<HashMap<String, RwLock<HashMap<String, proto::Snapshot>>>>,
+    stream_cache: RwLock<HashMap<String, RwLock<HashMap<String, Snapshot>>>>,
     /// Active camera control channels, indexed by session token
     /// TODO: Use token data as key, not whole token?
-    control_channels:
-        RwLock<HashMap<proto::SessionToken, mpsc::Sender<proto::CameraControlCommand>>>,
+    control_channels: RwLock<HashMap<SessionToken, mpsc::Sender<CameraControlCommand>>>,
     /// Channels to route incoming data from cameras, indexed by command token
-    data_channels: RwLock<HashMap<proto::CommandToken, mpsc::Sender<CommandResponseMessage>>>,
+    data_channels: RwLock<HashMap<CommandToken, mpsc::Sender<CommandResponseMessage>>>,
 }
 
 #[tonic::async_trait]
 impl HubService for HubServer {
     // TODO: Create custom stream type that notifies hub server when client disconnects.
-    type CameraControlStream = ReceiverStream<Result<proto::CameraControlCommand, Status>>;
+    type CameraControlStream = ReceiverStream<Result<CameraControlCommand, Status>>;
 
     // Old
 
     /*
     async fn stream_poses(
         &self,
-        request: Request<Streaming<proto::Pose2DMessage>>,
+        request: Request<Streaming<Pose2DMessage>>,
     ) -> Result<Response<Empty>, Status> {
         let mut stream = request.into_inner();
 
         while let Some(message) = stream.next().await {
             let message = message?;
             let poses = message.poses.clone();
-            let labeled = proto::Snapshot {
+            let labeled = Snapshot {
                 group_name: message.group_name.clone(),
                 camera_name: message.camera_name.clone(),
                 time: Instant::now(),
@@ -85,7 +81,7 @@ impl HubService for HubServer {
 
     async fn wait_for_snapshot_request(
         &self,
-        request: Request<proto::CameraInfo>,
+        request: Request<CameraInfo>,
     ) -> Result<Response<Self::WaitForSnapshotRequestStream>, Status> {
         let camera = request.into_inner();
         // Create channel to send snapshot requests later
@@ -116,8 +112,8 @@ impl HubService for HubServer {
 
     async fn send_snapshot(
         &self,
-        request: Request<proto::CameraSnapshotResponse>,
-    ) -> Result<Response<proto::Empty>, Status> {
+        request: Request<CameraSnapshotResponse>,
+    ) -> Result<Response<Empty>, Status> {
         match request.into_inner() {
             CameraSnapshotResponse {
                 snapshot_id,
@@ -160,8 +156,8 @@ impl HubService for HubServer {
 
     async fn get_snapshots(
         &self,
-        request: Request<proto::ServerSnapshotRequest>,
-    ) -> Result<Response<proto::ServerSnapshotResponse>, Status> {
+        request: Request<ServerSnapshotRequest>,
+    ) -> Result<Response<ServerSnapshotResponse>, Status> {
         let ServerSnapshotRequest { group_name } = request.into_inner();
         let snapshot_id = Uuid::new_v4().to_string();
 
@@ -178,7 +174,7 @@ impl HubService for HubServer {
                     "No outstanding snapshot offers for group {}",
                     group_name
                 )))?;
-            let camera_request = proto::CameraSnapshotRequest {
+            let camera_request = CameraSnapshotRequest {
                 // TODO: Can snapshot_id be passed by reference?
                 snapshot_id: snapshot_id.clone(),
                 timestamp: Some(SystemTime::now().into()),
@@ -234,8 +230,8 @@ impl HubService for HubServer {
             let mut camera_responses = vec![];
 
             async fn collect_poses(
-                rx: mpsc::Receiver<proto::Snapshot>,
-                vec: &mut Vec<proto::Snapshot>,
+                rx: mpsc::Receiver<Snapshot>,
+                vec: &mut Vec<Snapshot>,
                 num_poses: usize,
             ) {
                 // TODO: Wait until closed, or
@@ -285,8 +281,8 @@ impl HubService for HubServer {
 
     async fn get_snapshot_cameras(
         &self,
-        request: Request<proto::ServerSnapshotRequest>,
-    ) -> Result<Response<proto::SnapshotCamerasResponse>, Status> {
+        request: Request<ServerSnapshotRequest>,
+    ) -> Result<Response<SnapshotCamerasResponse>, Status> {
         let ServerSnapshotRequest { group_name } = request.into_inner();
         let all_offers = self.snapshot_offers.read().await;
         let group_offers = all_offers
@@ -308,37 +304,34 @@ impl HubService for HubServer {
 
     // Camera
 
-    async fn hello(
-        &self,
-        request: Request<proto::CameraInfo>,
-    ) -> Result<Response<proto::SessionToken>, Status> {
+    async fn hello(&self, request: Request<CameraInfo>) -> Result<Response<SessionToken>, Status> {
         let info = request.into_inner();
         self.cameras_tx
             .send(info)
             .await
             .expect("Pose channel was closed.");
 
-        let token = proto::SessionToken::new();
+        let token = SessionToken::new();
 
         Ok(Response::new(token))
     }
 
     async fn camera_control(
         &self,
-        request: Request<proto::SessionToken>,
+        request: Request<SessionToken>,
     ) -> Result<Response<Self::CameraControlStream>, Status> {
         todo!()
     }
 
     async fn camera_data_sink(
         &self,
-        request: Request<tonic::Streaming<proto::CameraMessage>>,
-    ) -> Result<Response<proto::SendDataSuccess>, Status> {
+        request: Request<tonic::Streaming<CameraMessage>>,
+    ) -> Result<Response<SendDataSuccess>, Status> {
         let mut stream = request.into_inner();
 
         // First message in stream must be a command token.
-        if let Some(Ok(proto::CameraMessage {
-            msg: Some(proto::camera_message::Msg::Token(token)),
+        if let Some(Ok(CameraMessage {
+            msg: Some(camera_message::Msg::Token(token)),
         })) = stream.next().await
         {
             // TODO: Move to self.get_data_channel(&token) function
@@ -360,8 +353,8 @@ impl HubService for HubServer {
                 .or(Err(Status::failed_precondition("Data channel closed.")))?;
 
             // TODO: What would Some(Err(_)) mean here? And how to deal with it?
-            while let Some(Ok(proto::CameraMessage {
-                msg: Some(proto::camera_message::Msg::Response(command_response)),
+            while let Some(Ok(CameraMessage {
+                msg: Some(camera_message::Msg::Response(command_response)),
             })) = stream.next().await
             {
                 // TODO: This could be made more efficient, possibly by using tokio::spawn.
@@ -377,7 +370,7 @@ impl HubService for HubServer {
                     .or(Err(Status::failed_precondition("Data channel closed.")))?;
             }
 
-            Ok(Response::new(proto::SendDataSuccess {}))
+            Ok(Response::new(SendDataSuccess {}))
         } else {
             Err(Status::invalid_argument(
                 "Stream must begin with a CommandToken.",
@@ -389,52 +382,52 @@ impl HubService for HubServer {
 
     async fn list_groups(
         &self,
-        request: Request<proto::ListGroupsRequest>,
-    ) -> Result<Response<proto::ListGroupsResponse>, Status> {
+        request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
         todo!()
     }
 
     async fn list_cameras(
         &self,
-        request: Request<proto::ListCamerasRequest>,
-    ) -> Result<Response<proto::ListCamerasResponse>, Status> {
+        request: Request<ListCamerasRequest>,
+    ) -> Result<Response<ListCamerasResponse>, Status> {
         todo!()
     }
 
     async fn get_camera_info(
         &self,
-        request: Request<proto::CameraIdentifier>,
-    ) -> Result<Response<proto::CameraInfo>, Status> {
+        request: Request<CameraIdentifier>,
+    ) -> Result<Response<CameraInfo>, Status> {
         todo!()
     }
 
     async fn stream_control(
         &self,
-        request: Request<proto::StreamControlRequest>,
-    ) -> Result<Response<proto::StreamStatus>, Status> {
+        request: Request<StreamControlRequest>,
+    ) -> Result<Response<StreamStatus>, Status> {
         todo!()
     }
 
     async fn take_snapshots(
         &self,
-        request: Request<proto::ServerSnapshotRequest>,
-    ) -> Result<Response<proto::ServerSnapshotResponse>, Status> {
+        request: Request<ServerSnapshotRequest>,
+    ) -> Result<Response<ServerSnapshotResponse>, Status> {
         todo!()
     }
 
     async fn get_current(
         &self,
-        request: Request<proto::CameraIdentifier>,
-    ) -> Result<Response<proto::ServerSnapshotResponse>, Status> {
+        request: Request<CameraIdentifier>,
+    ) -> Result<Response<ServerSnapshotResponse>, Status> {
         todo!()
     }
 
     async fn calibrate(
         &self,
-        request: Request<proto::CalibrationRequest>,
-    ) -> Result<Response<proto::CalibrationResponse>, Status> {
+        request: Request<CalibrationRequest>,
+    ) -> Result<Response<CalibrationResponse>, Status> {
         match request.into_inner() {
-            proto::CalibrationRequest {
+            CalibrationRequest {
                 which_camera: Some(which_camera),
                 command: Some(calibrate_command),
             } => {
@@ -459,30 +452,27 @@ impl HubService for HubServer {
                     }
                 }
 
-                Ok(Response::new(proto::CalibrationResponse {
+                Ok(Response::new(CalibrationResponse {
                     states: calibration_states,
                 }))
             }
-            proto::CalibrationRequest { command: None, .. } => {
+            CalibrationRequest { command: None, .. } => {
                 Err(Status::invalid_argument("Missing field: 'command'"))
             }
-            proto::CalibrationRequest {
+            CalibrationRequest {
                 which_camera: None, ..
             } => Err(Status::invalid_argument("Missing field: 'which_camera'")),
         }
     }
 
-    async fn ping(
-        &self,
-        request: Request<proto::PingRequest>,
-    ) -> Result<Response<proto::PingResponse>, Status> {
-        if let proto::PingRequest {
+    async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
+        if let PingRequest {
             which_camera: Some(which_camera),
             timeout: maybe_timeout,
         } = request.into_inner()
         {
             // Ping some cameras
-            let command = camera_control_command::Command::Ping(proto::Ping {});
+            let command = camera_control_command::Command::Ping(Ping {});
             let send_time = Instant::now();
 
             let response_stream_futures = self.execute_command(which_camera, command).await;
@@ -498,7 +488,7 @@ impl HubService for HubServer {
                         // Once we receive the stream, then the ping has returned.
                         let receive_time = Instant::now();
                         let elapsed = receive_time - send_time;
-                        let ping_results = proto::PingResults {
+                        let ping_results = PingResults {
                             response_time: Some(elapsed.into()),
                             which_camera: None,
                         };
@@ -522,10 +512,10 @@ impl HubService for HubServer {
                 _ = tokio::time::sleep(timeout) => results_buf
             };
 
-            Ok(Response::new(proto::PingResponse { results }))
+            Ok(Response::new(PingResponse { results }))
         } else {
             // Don't ping any cameras, just respond immediately
-            return Ok(Response::new(proto::PingResponse::default()));
+            return Ok(Response::new(PingResponse::default()));
         }
     }
 
@@ -533,19 +523,19 @@ impl HubService for HubServer {
 
     async fn triangulate(
         &self,
-        request: Request<tonic::Streaming<proto::TriangulationRequest>>,
-    ) -> Result<Response<proto::TriangulationResponse>, Status> {
+        request: Request<tonic::Streaming<TriangulationRequest>>,
+    ) -> Result<Response<TriangulationResponse>, Status> {
         use crate::triangulator;
         // Collect all poses until client stops streaming
         let mut stream = request.into_inner();
-        let mut cameras = Vec::<proto::CameraInfo>::new();
+        let mut cameras = Vec::<CameraInfo>::new();
         let mut poses_by_subject = Vec::new();
 
         log::info!("Got triangulate request");
 
         let mut i: u8 = 0;
         while let Some(viewpoint) = stream.message().await? {
-            let proto::TriangulationRequest { camera, poses } = viewpoint;
+            let TriangulationRequest { camera, poses } = viewpoint;
             // Group poses by subject (they arrive grouped by camera)
             if i == 0 {
                 for pose in poses {
@@ -572,7 +562,7 @@ impl HubService for HubServer {
             i += 1;
         }
 
-        // Convert proto::CameraInfo objects to Camera Matrices
+        // Convert CameraInfo objects to Camera Matrices
         let camera_matrices = cameras
             .iter()
             .map(|camera| -> anyhow::Result<_> {
@@ -592,7 +582,7 @@ impl HubService for HubServer {
             triangulator::triangulate_from_poses_and_camera_matrices(poses, &camera_matrices)
         });
 
-        let response = proto::TriangulationResponse {
+        let response = TriangulationResponse {
             poses: poses3d.collect(),
         };
 
@@ -603,8 +593,8 @@ impl HubService for HubServer {
 
     async fn bundle_adjustment(
         &self,
-        request: Request<proto::BundleAdjustmentRequest>,
-    ) -> Result<Response<proto::BundleAdjustmentResponse>, Status> {
+        request: Request<BundleAdjustmentRequest>,
+    ) -> Result<Response<BundleAdjustmentResponse>, Status> {
         let message = request.into_inner();
         let nkeypoints = 17;
         let views = message.views;
@@ -699,7 +689,7 @@ impl HubService for HubServer {
         // Unpack results back into protobuf types
         let mut cameras = Vec::with_capacity(nviews);
         for (i, orig_camera) in orig_cameras.into_iter().enumerate() {
-            let proto::CameraIdentifier {
+            let CameraIdentifier {
                 group_name,
                 camera_name,
             } = orig_camera
@@ -726,14 +716,14 @@ impl HubService for HubServer {
 
             // Collect camera matrix
             let camera_matrix = ks[i].transpose().as_slice().to_vec();
-            let camera = proto::CameraInfo {
-                which_camera: Some(proto::CameraIdentifier {
+            let camera = CameraInfo {
+                which_camera: Some(CameraIdentifier {
                     camera_name,
                     group_name,
                 }),
-                calibration: Some(proto::CalibrationParameters {
-                    extrinsics: Some(proto::CameraExtrinsics { view_matrix }),
-                    intrinsics: Some(proto::CameraIntrinsics {
+                calibration: Some(CalibrationParameters {
+                    extrinsics: Some(CameraExtrinsics { view_matrix }),
+                    intrinsics: Some(CameraIntrinsics {
                         camera_matrix,
                         distortion,
                         rms_error: 0.0, // Not sure what to do with this
@@ -763,12 +753,12 @@ impl HubService for HubServer {
             }
             // TODO: What to use for score?
             let score = 1.0;
-            let pose: proto::Pose3D = (spoints, score).into();
+            let pose: Pose3D = (spoints, score).into();
             poses.push(pose)
         }
 
         // Send response
-        let response = proto::BundleAdjustmentResponse { cameras, poses };
+        let response = BundleAdjustmentResponse { cameras, poses };
         log::info!("Bundle adjustment completed successfully.");
         Ok(Response::new(response))
     }
@@ -776,19 +766,19 @@ impl HubService for HubServer {
 
 fn construct_calibration_state(
     camera: CameraUniqueIdentifier,
-    maybe_response: Option<proto::CommandResponse>,
-) -> Result<proto::CalibrationState, CalibrationResponseError> {
+    maybe_response: Option<CommandResponse>,
+) -> Result<CalibrationState, CalibrationResponseError> {
     match maybe_response {
-        Some(proto::CommandResponse {
+        Some(CommandResponse {
             response: Some(command_response::Response::Calibration(params)),
-        }) => Ok(proto::CalibrationState {
+        }) => Ok(CalibrationState {
             which_camera: Some(camera.into()),
             calibration: Some(params),
         }),
-        Some(proto::CommandResponse {
+        Some(CommandResponse {
             response: Some(wrong),
         }) => Err(CalibrationResponseError::WrongResponseType(wrong)),
-        Some(proto::CommandResponse { response: None }) => {
+        Some(CommandResponse { response: None }) => {
             Err(CalibrationResponseError::EmptyCommandResponse)
         }
         None => Err(CalibrationResponseError::NoCommandResponse),
@@ -807,23 +797,23 @@ enum CalibrationResponseError {
 
 struct CameraSession {
     camera: CameraUniqueIdentifier,
-    token: proto::SessionToken,
+    token: SessionToken,
 }
 
 struct CommandResponseStream {
     camera: CameraUniqueIdentifier,
-    rx: mpsc::Receiver<proto::CommandResponseMessage>,
+    rx: mpsc::Receiver<CommandResponseMessage>,
 }
 
 async fn send_control_command(
     command: camera_control_command::Command,
-    channels: Vec<mpsc::Sender<proto::CameraControlCommand>>,
-    tokens: Vec<proto::CommandToken>,
+    channels: Vec<mpsc::Sender<CameraControlCommand>>,
+    tokens: Vec<CommandToken>,
 ) {
     // TODO: Don't panic - return result
     assert_eq!(channels.len(), tokens.len());
     let futures = channels.into_iter().zip(tokens).map(|(tx, token)| {
-        let control_command = proto::CameraControlCommand {
+        let control_command = CameraControlCommand {
             token: Some(token),
             command: Some(command.clone()),
         };
@@ -838,9 +828,9 @@ impl HubServer {
     /// - If `group_name` and `camera_name` are specified: match one camera
     /// - If only `group_name` is specified: match all cameras in a group
     /// - If neither is specified: match all cameras
-    async fn get_sessions(&self, which_camera: proto::CameraIdentifier) -> Vec<CameraSession> {
+    async fn get_sessions(&self, which_camera: CameraIdentifier) -> Vec<CameraSession> {
         match which_camera {
-            proto::CameraIdentifier {
+            CameraIdentifier {
                 group_name,
                 camera_name,
             } if group_name == "" && camera_name == "" => {
@@ -865,7 +855,7 @@ impl HubServer {
 
                 sessions
             }
-            proto::CameraIdentifier {
+            CameraIdentifier {
                 group_name,
                 camera_name,
             } if camera_name == "" => {
@@ -893,7 +883,7 @@ impl HubServer {
                     Vec::new()
                 }
             }
-            proto::CameraIdentifier {
+            CameraIdentifier {
                 group_name,
                 camera_name,
             } => {
@@ -931,8 +921,8 @@ impl HubServer {
 
     async fn get_control_channels(
         &self,
-        tokens: &[proto::SessionToken],
-    ) -> Vec<mpsc::Sender<proto::CameraControlCommand>> {
+        tokens: &[SessionToken],
+    ) -> Vec<mpsc::Sender<CameraControlCommand>> {
         let channels_hm = self.control_channels.read().await;
         tokens
             .iter()
@@ -950,8 +940,8 @@ impl HubServer {
     /// Store `Sender`s for later lookup, and return `Receiver`s immediately.
     async fn create_data_channels(
         &self,
-        tokens: Vec<proto::CommandToken>,
-    ) -> Vec<mpsc::Receiver<proto::CommandResponseMessage>> {
+        tokens: Vec<CommandToken>,
+    ) -> Vec<mpsc::Receiver<CommandResponseMessage>> {
         let mut rxs = Vec::with_capacity(tokens.len());
         let mut rx_hm = self.data_channels.write().await;
         for token in tokens {
@@ -970,13 +960,13 @@ impl HubServer {
     /// Send command & retrieve results
     async fn execute_command(
         &self,
-        which_camera: proto::CameraIdentifier,
+        which_camera: CameraIdentifier,
         command: camera_control_command::Command,
     ) -> Vec<
         impl Future<
             Output = (
                 CameraUniqueIdentifier,
-                impl Stream<Item = proto::CommandResponse> + Send,
+                impl Stream<Item = CommandResponse> + Send,
             ),
         >,
     > {
@@ -994,7 +984,7 @@ impl HubServer {
         // Create command tokens
         let command_tokens: Vec<_> = control_channels
             .iter()
-            .map(|_| proto::CommandToken::new())
+            .map(|_| CommandToken::new())
             .collect();
 
         // Get data channels
@@ -1046,9 +1036,7 @@ impl HubServer {
     }
 }
 
-async fn get_inner_command_response(
-    message: CommandResponseMessage,
-) -> Option<proto::CommandResponse> {
+async fn get_inner_command_response(message: CommandResponseMessage) -> Option<CommandResponse> {
     match message {
         CommandResponseMessage::Data(response) => Some(response),
         _ => None,
@@ -1124,15 +1112,15 @@ impl Default for GrpcConfig {
 
 pub struct GrpcServer {
     config: GrpcConfig,
-    cameras_tx: mpsc::Sender<proto::CameraInfo>,
-    snapshots_tx: mpsc::Sender<proto::Snapshot>,
+    cameras_tx: mpsc::Sender<CameraInfo>,
+    snapshots_tx: mpsc::Sender<Snapshot>,
 }
 
 impl GrpcServer {
     pub fn new(
         config: GrpcConfig,
-        cameras_tx: mpsc::Sender<proto::CameraInfo>,
-        snapshots_tx: mpsc::Sender<proto::Snapshot>,
+        cameras_tx: mpsc::Sender<CameraInfo>,
+        snapshots_tx: mpsc::Sender<Snapshot>,
     ) -> Self {
         Self {
             config,

@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use tokio::{sync::broadcast, try_join};
 
-use crate::grpc::proto;
-use crate::grpc::server::proto::Snapshot;
+use crate::grpc::proto::{CameraInfo, Snapshot};
 use crate::triangulator::{LabeledPoses3D, Triangulator, TriangulatorConfig};
 
 // https://benkay86.github.io/rust-error-tutorial.html
@@ -15,14 +14,14 @@ pub type BoxError = std::boxed::Box<
 >;
 
 pub struct TriangulatorInfo {
-    cameras_tx: channel::Sender<proto::CameraInfo>,
-    snapshots_tx: channel::Sender<proto::Snapshot>,
+    cameras_tx: channel::Sender<CameraInfo>,
+    snapshots_tx: channel::Sender<Snapshot>,
 }
 
 pub struct Controller {
     config: TriangulatorConfig,
-    cameras_rx: channel::Receiver<proto::CameraInfo>,
-    snapshots_rx: channel::Receiver<proto::Snapshot>,
+    cameras_rx: channel::Receiver<CameraInfo>,
+    snapshots_rx: channel::Receiver<Snapshot>,
     poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     triangulators: Arc<RwLock<HashMap<String, TriangulatorInfo>>>,
 }
@@ -30,8 +29,8 @@ pub struct Controller {
 impl Controller {
     pub fn new(
         config: TriangulatorConfig,
-        cameras_rx: channel::Receiver<proto::CameraInfo>,
-        snapshots_rx: channel::Receiver<proto::Snapshot>,
+        cameras_rx: channel::Receiver<CameraInfo>,
+        snapshots_rx: channel::Receiver<Snapshot>,
         poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     ) -> Self {
         Self {
@@ -81,8 +80,8 @@ impl Controller {
 
             if create_group {
                 println!("New camera group --> {}", group_name.clone());
-                let (cameras_tx, cameras_rx) = channel::unbounded::<proto::CameraInfo>();
-                let (snapshots_tx, snapshots_rx) = channel::unbounded::<proto::Snapshot>();
+                let (cameras_tx, cameras_rx) = channel::unbounded::<CameraInfo>();
+                let (snapshots_tx, snapshots_rx) = channel::unbounded::<Snapshot>();
 
                 let t = Triangulator::new(
                     self.config.clone(),
