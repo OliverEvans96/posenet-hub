@@ -24,22 +24,10 @@ fn build_grpc() -> UnitResult {
         // 2. https://docs.rs/prost-build/0.8.0/prost_build/struct.Config.html#method.type_attribute
         // 3. https://docs.rs/prost-build/0.8.0/prost_build/struct.Config.html#method.btree_map
         // 4. https://www.reddit.com/r/rust/comments/efuikd/comment/fc3r7ty/?utm_source=share&utm_medium=web2x&context=3
-        .type_attribute(
-            "Point2D",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "Point3D",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "Pose2D",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
-        .type_attribute(
-            "Pose3D",
-            "#[derive(serde::Deserialize, serde::Serialize)]",
-        )
+        .type_attribute("Point2D", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("Point3D", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("Pose2D", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("Pose3D", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
             "CameraIntrinsics",
             "#[derive(serde::Deserialize, serde::Serialize)]",
