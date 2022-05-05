@@ -5,13 +5,15 @@ stages:
   - doc
   - deploy
 
-nix-build:
+nix-build-docker-image:
   stage: build
   image: nixos/nix:2.3.12
   variables:
     # NOTE: CACHIX_AUTH_TOKEN is set as a per-project Gitlab CI Variable
     CACHIX_CACHE_NAME: nautilus-posenet
   before_script:
+    # Enable nix flakes
+    - echo 'experimental-features = nix-command flakes' >> /etc/nix/nix.conf
     # Install required packages for nix build & push
     - nix-env -iA nixpkgs.cachix nixpkgs.skopeo
     # Set up cachix (avoid unnecessary rebuilds)
