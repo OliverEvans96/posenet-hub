@@ -9,6 +9,12 @@ fn build_grpc() -> UnitResult {
     println!("cargo:rerun-if-changed=proto/client.proto");
     println!("cargo:rerun-if-changed=proto/server.proto");
 
+    dotenv().ok();
+
+    let mut proto_includes = vec!["proto"];
+    let extra_proto_inc_str = env::var("EXTRA_PROTO_INC").unwrap_or_default();
+    proto_includes.extend(extra_proto_inc_str.split(":"));
+
     tonic_build::configure()
         .build_client(true)
         // Allow auto-generated tonic / gRPC types to be
@@ -42,7 +48,7 @@ fn build_grpc() -> UnitResult {
             "CameraExtrinsics",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
-        .compile(&["proto/hub.proto"], &["proto"])?;
+        .compile(&["hub.proto"], &proto_includes)?;
 
     Ok(())
 }
