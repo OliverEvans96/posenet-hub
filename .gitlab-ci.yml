@@ -7,7 +7,7 @@ stages:
 
 nix-build-docker-image:
   stage: build
-  image: nixos/nix:2.3.12
+  image: nixos/nix:2.8.0
   variables:
     # NOTE: CACHIX_AUTH_TOKEN is set as a per-project Gitlab CI Variable
     CACHIX_CACHE_NAME: nautilus-posenet
