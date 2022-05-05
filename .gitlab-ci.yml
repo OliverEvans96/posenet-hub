@@ -5,6 +5,26 @@ stages:
   - doc
   - deploy
 
+nix-build:
+  stage: build
+  image: nixos/nix:2.3.12
+  variables:
+    # NOTE: CACHIX_AUTH_TOKEN is set as a per-project Gitlab CI Variable
+    CACHIX_CACHE_NAME: nautilus-posenet
+  before_script:
+    # Install required packages for nix build & push
+    - nix-env -iA nixpkgs.cachix nixpkgs.skopeo
+    # Set up cachix (avoid unnecessary rebuilds)
+    - cachix use "$CACHIX_CACHE_NAME"
+    # Login to Gitlab image registry
+    - skopeo login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  script:
+    # Build image (and push artifacts to cachix)
+    - cachix watch-exec $CACHIX_CACHE_NAME nix build '.#dockerImage' --print-build-logs
+    # Push image to registry
+    - skopeo copy docker-archive:result "docker://$CI_REGISTRY_IMAGE/nix-docker:latest"
+    - skopeo copy docker-archive:result "docker://$CI_REGISTRY_IMAGE/nix-docker:$CI_COMMIT_SHORT_SHA"
+
 build-cpp-deps:
   stage: build
   needs: []
