@@ -76,7 +76,7 @@
                 "3883" = { }; # VRPN
               };
             };
-            contents = with pkgs; [ bash python3 coreutils defaultPackage ];
+            contents = with pkgs; [ bash coreutils defaultPackage ];
           };
           testPackage = pkgs.stdenv.mkDerivation {
             name = "testPackage";
