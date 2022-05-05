@@ -11,10 +11,19 @@
       url = "github:ipetkov/crane";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    proto = {
+      type = "git";
+      url =
+        "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git";
+      ref = "main";
+      flake = false;
+    };
+    # "git+ssh://git@gitlab-ssh.nrp-nautilus.io:30622/librareome/posenet/posenet-proto.git/main";
+    # "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git/main";
     # "git+ssh://git@gitlab-ssh.nrp-nautilus.io:30622/librareome/posenet/posenet-proto.git/main";
   };
 
-  outputs = { self, fenix, nixpkgs, flake-utils, crane }:
+  outputs = { self, fenix, nixpkgs, flake-utils, crane, proto }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -37,15 +46,6 @@
             "-DTARGET_ARCHITECTURE=generic"
           ] ++ oldAttrs.cmakeFlags);
         });
-        # TODO: Use flake input
-        proto = pkgs.fetchgit {
-          # url = "path:/home/oliver/ucsd/posenet-vr/proto";
-          url =
-            "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git";
-          rev = "main";
-          # "git://gitlab.nrp-nautilus.io:30622/librareome/posenet/posenet-proto.git";
-          sha256 = "sha256-BELPTwDJt4jZf3vBvgdpvw750aQbnRY3xFpp1PqAVSA=";
-        };
       in rec {
         defaultPackage = crane.lib.${system}.buildPackage {
           nativeBuildInputs = with pkgs; [ rustc cargo rustfmt rust-analyzer ];

@@ -121,12 +121,30 @@
         "type": "github"
       }
     },
+    "proto": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1634663739,
+        "narHash": "sha256-BELPTwDJt4jZf3vBvgdpvw750aQbnRY3xFpp1PqAVSA=",
+        "ref": "main",
+        "rev": "3e4d16718d976332f9fb76e70d91a528b383d246",
+        "revCount": 18,
+        "type": "git",
+        "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git"
+      },
+      "original": {
+        "ref": "main",
+        "type": "git",
+        "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git"
+      }
+    },
     "root": {
       "inputs": {
         "crane": "crane",
         "fenix": "fenix",
         "flake-utils": "flake-utils_2",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "proto": "proto"
       }
     },
     "rust-analyzer-src": {
