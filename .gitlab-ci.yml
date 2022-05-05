@@ -24,9 +24,9 @@ nix-build-docker-image:
     # Build image (and push artifacts to cachix)
     - cachix watch-exec $CACHIX_CACHE_NAME nix -- build '.#dockerImage' --print-build-logs
     # Push image to registry
-    - skopeo copy docker-archive:result "docker://$CI_REGISTRY_IMAGE/nix-docker:$CI_COMMIT_SHORT_SHA"
+    - skopeo copy --insecure-policy docker-archive:result "docker://$CI_REGISTRY_IMAGE/nix-docker:$CI_COMMIT_SHORT_SHA"
     # Alias image with `latest` tag (without re-pushing all the data)
-    - skopeo copy "docker://$CI_REGISTRY_IMAGE/nix-docker:$CI_COMMIT_SHORT_SHA" "docker://$CI_REGISTRY_IMAGE/nix-docker:latest"
+    - skopeo copy --insecure-policy "docker://$CI_REGISTRY_IMAGE/nix-docker:$CI_COMMIT_SHORT_SHA" "docker://$CI_REGISTRY_IMAGE/nix-docker:latest"
 
 build-cpp-deps:
   stage: build
