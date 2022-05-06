@@ -11,7 +11,7 @@ pub struct VrpnConfig {
 }
 
 impl VrpnConfig {
-    pub fn new(device_name: &str, ip: &str, port: u16) -> Result<Self, Box<dyn Error>> {
+    pub fn new(device_name: &str, ip: &str, port: u16) -> anyhow::Result<Self> {
         Ok(Self {
             device_name: device_name.to_owned(),
             addr: format!("{}:{}", ip, port).parse()?,
@@ -45,10 +45,11 @@ impl VrpnServer {
         loop {
             // Check for new pose from controller
             let message = self.poses3d_rx.recv().await?;
+            let device_name = message.group_name + ":" + &self.config.device_name;
+            println!("VRPN device: {}", device_name);
 
             // Update values from pose if available
             if message.poses.len() > 0 {
-                let device_name = message.group_name + ".pose0";
                 update_values(
                     &mut container,
                     &device_name,
