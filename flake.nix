@@ -48,8 +48,17 @@
         });
       in rec {
         defaultPackage = crane.lib.${system}.buildPackage {
-          nativeBuildInputs = with pkgs; [ rustc cargo rustfmt rust-analyzer ];
-          buildInputs = [ myEigen myOpenMVG pkgs.vrpn pkgs.protobuf ];
+          nativeBuildInputs = with pkgs; [
+            rustc
+            cargo
+            rustfmt
+            rust-analyzer
+
+            myEigen
+            myOpenMVG
+            pkgs.vrpn
+            pkgs.protobuf
+          ];
 
           src = ./.;
 
