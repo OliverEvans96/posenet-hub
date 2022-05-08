@@ -4,8 +4,8 @@
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # nixpkgs.url = "nixpkgs/nixos-unstable";
-    nixpkgs.url = "github:OliverEvans96/nixpkgs/bump-rust-analyzer-2022-05-02";
+    nixpkgs.url = "nixpkgs/nixos-unstable";
+    # nixpkgs.url = "github:OliverEvans96/nixpkgs/bump-rust-analyzer-2022-05-02";
     flake-utils.url = "github:numtide/flake-utils";
     crane = {
       url = "github:ipetkov/crane";
@@ -21,9 +21,15 @@
     # "git+ssh://git@gitlab-ssh.nrp-nautilus.io:30622/librareome/posenet/posenet-proto.git/main";
     # "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git/main";
     # "git+ssh://git@gitlab-ssh.nrp-nautilus.io:30622/librareome/posenet/posenet-proto.git/main";
+    pose-data = {
+      type = "git";
+      url =
+        "https://gitlab.nrp-nautilus.io/librareome/posenet/fake-pose-animation.git";
+      ref = "main";
+    };
   };
 
-  outputs = { self, fenix, nixpkgs, flake-utils, crane, proto }:
+  outputs = { self, fenix, nixpkgs, flake-utils, crane, proto, pose-data }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -51,6 +57,7 @@
           nativeBuildInputs = with pkgs; [
             rustc
             cargo
+            cargo-edit
             rustfmt
             rust-analyzer
 
@@ -85,7 +92,12 @@
                 "3883" = { }; # VRPN
               };
             };
-            contents = with pkgs; [ bash coreutils defaultPackage ];
+            contents = with pkgs; [
+              bash
+              coreutils
+              defaultPackage
+              pose-data.defaultPackage.${system} # /data/poses.json
+            ];
           };
           testPackage = pkgs.stdenv.mkDerivation {
             name = "testPackage";
