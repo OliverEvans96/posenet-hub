@@ -96,6 +96,7 @@
               bash
               coreutils
               inetutils
+              netcat-gnu
               defaultPackage
               pose-data.defaultPackage.${system} # /data/poses.json
             ];
