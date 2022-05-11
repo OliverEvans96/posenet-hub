@@ -95,6 +95,7 @@
             contents = with pkgs; [
               bash
               coreutils
+              inetutils
               defaultPackage
               pose-data.defaultPackage.${system} # /data/poses.json
             ];
