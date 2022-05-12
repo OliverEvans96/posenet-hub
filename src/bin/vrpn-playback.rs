@@ -59,8 +59,6 @@ async fn pose_playback(
                 time: Instant::now(),
             };
 
-            println!("Poses: {:?}", poses);
-
             // Send to VRPN server
             poses_tx.send(poses)?;
             println!("sent frame {}", frame.frame);
