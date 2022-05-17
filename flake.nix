@@ -93,11 +93,12 @@
               };
             };
             contents = with pkgs; [
-              bash
-              coreutils
-              inetutils
-              netcat-gnu
-              defaultPackage
+              bash # bash
+              coreutils # ls, cat, etc
+              inetutils # ip, ifconfig, etc.
+              iana-etc # /etc/protocols
+              netcat-gnu # nc
+              defaultPackage # posenet-hub
               pose-data.defaultPackage.${system} # /data/poses.json
             ];
           };
