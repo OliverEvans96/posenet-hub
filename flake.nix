@@ -26,6 +26,7 @@
       url =
         "https://gitlab.nrp-nautilus.io/librareome/posenet/fake-pose-animation.git";
       ref = "main";
+      flake = false;
     };
   };
 
