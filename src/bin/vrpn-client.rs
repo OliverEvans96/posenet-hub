@@ -36,6 +36,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hostname = format!("{}{}:{}", protocol_str, opts.server, opts.port);
 
     log::info!("Start VRPN client");
+    log::info!("Connecting to {}", hostname);
     analog_listen(&opts.device, &hostname);
     log::info!("VRPN client done");
 
