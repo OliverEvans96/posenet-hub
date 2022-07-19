@@ -36,6 +36,9 @@ fn build_grpc() -> UnitResult {
             "CameraExtrinsics",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        // Allow tokens to be used as HashMap keys
+        .type_attribute("CommandToken", "#[derive(Hash,Eq)]")
+        .type_attribute("SessionToken", "#[derive(Hash,Eq)]")
         .compile(&["hub.proto"], &proto_includes)?;
 
     Ok(())
