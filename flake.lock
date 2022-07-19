@@ -170,6 +170,23 @@
         "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/fake-pose-animation.git"
       }
     },
+    "pose-data": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1651951809,
+        "narHash": "sha256-9uPGwXRLIyvg7QG3LwCLTHoD431dV2kx6XckFfUVcyg=",
+        "ref": "main",
+        "rev": "2af82a03d924244d8930e18cf30b038400e341d1",
+        "revCount": 3,
+        "type": "git",
+        "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/fake-pose-animation.git"
+      },
+      "original": {
+        "ref": "main",
+        "type": "git",
+        "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/fake-pose-animation.git"
+      }
+    },
     "proto": {
       "flake": false,
       "locked": {
