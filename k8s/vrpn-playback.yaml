@@ -1,0 +1,65 @@
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vrpn-playback
+  namespace: posenet
+  labels:
+    app: vrpn-playback
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vrpn-playback
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: vrpn-playback
+    spec:
+      containers:
+        - name: posenet-hub
+          image: "gitlab-registry.nrp-nautilus.io/librareome/posenet/posenet-hub/nix-docker:latest"
+          command: [
+            "vrpn-playback",
+            "-i",
+            "/data/poses.json",
+          ]
+          # command: [
+          #   "nc",
+          #   "-lp",
+          #   "3883",
+          # ]
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3883
+          resources:
+            limits:
+              memory: 1Gi
+              cpu: "1"
+            requests:
+              memory: 1Gi
+              cpu: "1"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vrpn-playback
+  namespace: posenet
+  labels:
+    app: vrpn-playback
+  annotations:
+    metallb.universe.tf/allow-shared-ip: "vrpn-playback"
+spec:
+  ports:
+    - name: vrpn
+      port: 3883
+      targetPort: 3883
+      protocol: TCP
+  type: LoadBalancer
+  selector:
+    app: vrpn-playback
+---
