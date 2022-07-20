@@ -90,21 +90,6 @@
         "type": "github"
       }
     },
-    "flake-utils_3": {
-      "locked": {
-        "lastModified": 1649676176,
-        "narHash": "sha256-OWKJratjt2RW151VUlJPRALb7OU2S5s+f0vLj4o1bHM=",
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "rev": "a4b154ebbdc88c8498a5c7b01589addc9e9cb678",
-        "type": "github"
-      },
-      "original": {
-        "owner": "numtide",
-        "repo": "flake-utils",
-        "type": "github"
-      }
-    },
     "nix-std": {
       "locked": {
         "lastModified": 1647625366,
@@ -135,41 +120,6 @@
         "type": "indirect"
       }
     },
-    "nixpkgs_2": {
-      "locked": {
-        "lastModified": 1651726670,
-        "narHash": "sha256-dSGdzB49SEvdOJvrQWfQYkAefewXraHIV08Vz6iDXWQ=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "c777cdf5c564015d5f63b09cc93bef4178b19b01",
-        "type": "github"
-      },
-      "original": {
-        "id": "nixpkgs",
-        "ref": "nixos-unstable",
-        "type": "indirect"
-      }
-    },
-    "pose-data": {
-      "inputs": {
-        "flake-utils": "flake-utils_3",
-        "nixpkgs": "nixpkgs_2"
-      },
-      "locked": {
-        "lastModified": 1651972200,
-        "narHash": "sha256-uhu2kdoGCY115WMj6IXcecT5BO+NbTIDM9dkEMCNbic=",
-        "ref": "main",
-        "rev": "18b535d0860572b0ac3a628bb344901b96cbcd7a",
-        "revCount": 4,
-        "type": "git",
-        "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/fake-pose-animation.git"
-      },
-      "original": {
-        "ref": "main",
-        "type": "git",
-        "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/fake-pose-animation.git"
-      }
-    },
     "pose-data": {
       "flake": false,
       "locked": {
@@ -190,16 +140,16 @@
     "proto": {
       "flake": false,
       "locked": {
-        "lastModified": 1634663739,
-        "narHash": "sha256-BELPTwDJt4jZf3vBvgdpvw750aQbnRY3xFpp1PqAVSA=",
-        "ref": "main",
-        "rev": "3e4d16718d976332f9fb76e70d91a528b383d246",
-        "revCount": 18,
+        "lastModified": 1651784811,
+        "narHash": "sha256-EtPEh9qK/utXr3b6nsIdzpncPRak/erepXHLiJi0APA=",
+        "ref": "next",
+        "rev": "db2998079c24cc742fcab72b5437a76cf2ce488f",
+        "revCount": 26,
         "type": "git",
         "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git"
       },
       "original": {
-        "ref": "main",
+        "ref": "next",
         "type": "git",
         "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git"
       }

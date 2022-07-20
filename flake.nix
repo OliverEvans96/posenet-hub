@@ -15,7 +15,7 @@
       type = "git";
       url =
         "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git";
-      ref = "main";
+      ref = "next";
       flake = false;
     };
     # "git+ssh://git@gitlab-ssh.nrp-nautilus.io:30622/librareome/posenet/posenet-proto.git/main";
