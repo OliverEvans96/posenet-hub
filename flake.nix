@@ -5,7 +5,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixpkgs.url = "nixpkgs/nixos-unstable";
-    # nixpkgs.url = "github:OliverEvans96/nixpkgs/bump-rust-analyzer-2022-05-02";
     flake-utils.url = "github:numtide/flake-utils";
     crane = {
       url = "github:ipetkov/crane";
@@ -60,7 +59,6 @@
             cargo
             cargo-edit
             rustfmt
-            rust-analyzer
 
             myEigen
             myOpenMVG
@@ -123,9 +121,6 @@
             rustc
             cargo
             rustfmt
-            cargo-generate
-            # fenix.packages.${system}.rust-analyzer
-            rust-analyzer
 
             lld
             clang
