@@ -110,8 +110,8 @@
             '';
           };
         };
-        devShell = defaultPackage;
-        devShell1 = pkgs.mkShell {
+        devShell1 = defaultPackage;
+        devShell = pkgs.mkShell {
           name = "rust-env";
           src = ./.;
 
