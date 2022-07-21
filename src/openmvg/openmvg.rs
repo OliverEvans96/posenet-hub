@@ -1,14 +1,10 @@
 use core::f64;
-use std::error::Error;
-use std::iter::empty;
 
-use nalgebra::{self, Matrix2xX, Matrix3, Matrix3x4, Matrix3xX, Matrix4, Vector2};
+use nalgebra::{self, Matrix2xX, Matrix3, Matrix3x4, Matrix3xX};
 use nalgebra::{Point2, Point3, Rotation3, Vector3};
 
 use super::eigen::{Matrix3xN, ToEigen, ToNalgebra};
-use crate::grpc::proto::{
-    BundleAdjustmentOptions, CameraExtrinsics, CameraInfo, CameraIntrinsics, Point2D,
-};
+use crate::grpc::proto::BundleAdjustmentOptions;
 
 #[cxx::bridge]
 mod ffi {

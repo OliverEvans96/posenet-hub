@@ -50,7 +50,14 @@ impl Controller {
     async fn listen_for_poses(&self) -> Result<(), BoxError> {
         loop {
             let labeled = self.snapshots_rx.recv().await?;
-            match self.triangulators.read().unwrap().get(&labeled.group_name) {
+            match self.triangulators.read().unwrap().get(
+                &labeled
+                    .which_camera
+                    .as_ref()
+                    .map(|id| id.group_name.clone())
+                    // TODO: What if which_camera is None? (parse, don't validate)
+                    .unwrap_or_default(),
+            ) {
                 Some(info) => info
                     .snapshots_tx
                     .send(labeled)
@@ -66,7 +73,12 @@ impl Controller {
     async fn listen_for_cameras(&self) -> Result<(), BoxError> {
         loop {
             let camera = self.cameras_rx.recv().await?;
-            let group_name = camera.group_name.clone();
+            let group_name = camera
+                .which_camera
+                .as_ref()
+                .map(|id| id.group_name.clone())
+                // TODO: What if which_camera is None?
+                .unwrap_or_default();
             let create_group = match self.triangulators.read().unwrap().get(&group_name) {
                 Some(info) => {
                     info.cameras_tx

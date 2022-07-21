@@ -3,8 +3,8 @@ use async_std::channel;
 use tokio::{sync::broadcast, try_join};
 
 use posenet_vr_hub::controller::{BoxError, Controller};
-use posenet_vr_hub::grpc::CameraInfo;
-use posenet_vr_hub::grpc::server::Snapshot;
+use posenet_vr_hub::grpc::proto::CameraInfo;
+use posenet_vr_hub::grpc::proto::Snapshot;
 use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer};
 use posenet_vr_hub::triangulator::{LabeledPoses3D, TriangulatorConfig};
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
@@ -24,7 +24,12 @@ async fn main() -> Result<(), BoxError> {
 
     // Create controller
     let triangulator_config = TriangulatorConfig::default();
-    let controller = Controller::new(triangulator_config, cameras_rx, snapshots_rx, poses3d_bcast_tx);
+    let controller = Controller::new(
+        triangulator_config,
+        cameras_rx,
+        snapshots_rx,
+        poses3d_bcast_tx,
+    );
 
     // Create gRPC server
     let grpc_config = GrpcConfig::default();

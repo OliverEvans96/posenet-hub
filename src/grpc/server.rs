@@ -1,18 +1,17 @@
-use futures::future::{join_all, try_join_all};
-use futures::{pin_mut, stream, Future, FutureExt, Stream, StreamExt, TryFutureExt};
+use futures::future::join_all;
+use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
 use nalgebra::{Matrix2xX, Matrix3, Matrix3xX, Matrix4, Point3, Vector2, Vector3};
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::process::Output;
 use std::task::Poll;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use std::{error::Error, net::SocketAddr, pin::Pin};
 use thiserror::Error;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
-use tokio::sync::{mpsc, mpsc::error::SendError, RwLock};
+use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{transport::Server, Request, Response, Status, Streaming};
+use tonic::{transport::Server, Request, Response, Status};
 
 use crate::errors::MissingField;
 use crate::openmvg::openmvg::ceres_bundle_adjustment;
@@ -911,11 +910,6 @@ impl HubServer {
                     vec![]
                 }
             }
-            _ => {
-                // Invalid (camera specified, but no group)
-                // TODO: Return result?
-                vec![]
-            }
         }
     }
 
@@ -1060,7 +1054,7 @@ impl<'a, T> ChannelWatcher<'a, T> {
 impl<'a, T> Future for ChannelWatcher<'a, T> {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         while self.buf.len() < self.target {
             match self.rx.poll_recv(cx) {
                 Poll::Ready(Some(thing)) => {

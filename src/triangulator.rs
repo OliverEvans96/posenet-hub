@@ -8,7 +8,7 @@ use tokio::{sync::broadcast, time::sleep, try_join};
 
 use crate::controller::BoxError;
 use crate::errors::{CalculationError, MissingField};
-use crate::grpc::proto::{CameraInfo, Pose2D, Pose3D, SPoint2, CalibrationParameters, Snapshot};
+use crate::grpc::proto::{CalibrationParameters, CameraInfo, Pose2D, Pose3D, SPoint2, Snapshot};
 use crate::openmvg::openmvg::triangulate_many;
 use crate::utils::transpose_vecvec;
 
@@ -276,7 +276,7 @@ impl Triangulator {
             .filter_map(|snapshot| {
                 // If the snapshot has a timestamp and we can parse it, make sure it isn't expired.
                 // If we can't parse the timestamp, ignore this snapshot.
-                let timestamp = snapshot.timestamp?;
+                let timestamp = snapshot.timestamp.clone()?;
                 let system_time = SystemTime::try_from(timestamp).ok()?;
                 let elapsed = system_time.elapsed().ok()?;
 

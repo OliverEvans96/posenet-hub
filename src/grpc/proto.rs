@@ -1,8 +1,5 @@
 tonic::include_proto!("posenet_vr");
 
-use super::proto;
-use super::{camera_control_command, stream_control_request};
-
 use rand::{distributions::Standard, prelude::Distribution};
 use std::convert::{TryFrom, TryInto};
 use std::error::Error;
@@ -398,8 +395,8 @@ impl Display for MissingFieldError {
 impl Error for MissingFieldError {}
 
 pub struct CameraUniqueIdentifier {
-    group_name: String,
-    camera_name: String,
+    pub group_name: String,
+    pub camera_name: String,
 }
 
 impl TryFrom<CameraIdentifier> for CameraUniqueIdentifier {
@@ -417,23 +414,19 @@ impl TryFrom<CameraIdentifier> for CameraUniqueIdentifier {
                     camera_name,
                 })
             } else {
-                Err(MissingFieldError::new("group_name"))
+                Err(MissingFieldError::new("group_name".to_string()))
             }
         } else {
-            Err(MissingFieldError::new("camera_name"))
+            Err(MissingFieldError::new("camera_name".to_string()))
         }
     }
 }
 
 impl From<CameraUniqueIdentifier> for CameraIdentifier {
     fn from(value: CameraUniqueIdentifier) -> Self {
-        let CameraIdentifier {
-            group_name,
-            camera_name,
-        } = value;
         Self {
-            group_name,
-            camera_name,
+            group_name: value.group_name,
+            camera_name: value.camera_name,
         }
     }
 }
