@@ -110,7 +110,6 @@
             '';
           };
         };
-        devShell1 = defaultPackage;
         devShell = pkgs.mkShell {
           name = "rust-env";
           src = ./.;
@@ -129,8 +128,8 @@
             cargo-watch
 
             grpc-tools
-            # eigen
-            openmvg
+            myEigen
+            myOpenMVG
             vrpn
           ];
 
@@ -138,13 +137,13 @@
           # "failed to invoke protoc
           # (hint: https://docs.rs/prost-build/#sourcing-protoc):
           # No such file or directory (os error 2)"
-          PROTOC = "${pkgs.grpc-tools}/bin/protoc";
+          # PROTOC = "${pkgs.grpc-tools}/bin/protoc";
           # FIXME (find a better solution - this only works on my laptop)
           # PROTOC_INCLUDE =
           #   "/home/oliver/ucsd/posenet-vr/hub/proto:${pkgs.protobuf}/include";
 
           # FIXME (without this env var)
-          CPLUS_INCLUDE_PATH = "${pkgs.eigen}/include/eigen3";
+          # CPLUS_INCLUDE_PATH = "${myEigen}/include/eigen3";
         };
       });
 }
