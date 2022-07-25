@@ -1,9 +1,9 @@
-use async_std::channel;
 use nalgebra::{Matrix3, Matrix3x4, Point2};
 use std::convert::TryFrom;
 use std::sync::{Arc, RwLock};
 use std::time::{Instant, SystemTime};
 use std::{collections::HashMap, time::Duration};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::{sync::broadcast, time::sleep, try_join};
 
 use crate::controller::BoxError;
@@ -130,8 +130,8 @@ pub fn triangulate_from_poses_and_camera_matrices(
 pub struct Triangulator {
     config: TriangulatorConfig,
     group_name: String,
-    cameras_rx: channel::Receiver<CameraInfo>,
-    snapshots_rx: channel::Receiver<Snapshot>,
+    cameras_rx: UnboundedReceiver<CameraInfo>,
+    snapshots_rx: UnboundedReceiver<Snapshot>,
     poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     cameras: Arc<RwLock<HashMap<String, CameraState>>>,
     poses: Arc<RwLock<HashMap<String, Snapshot>>>,
@@ -141,8 +141,8 @@ impl Triangulator {
     pub fn new(
         config: TriangulatorConfig,
         group_name: String,
-        cameras_rx: channel::Receiver<CameraInfo>,
-        snapshots_rx: channel::Receiver<Snapshot>,
+        cameras_rx: UnboundedReceiver<CameraInfo>,
+        snapshots_rx: UnboundedReceiver<Snapshot>,
         poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     ) -> Self {
         Self {
@@ -156,138 +156,139 @@ impl Triangulator {
         }
     }
 
-    pub async fn run(&self) -> Result<(), BoxError> {
-        try_join!(
-            self.listen_for_poses(),
-            self.listen_for_cameras(),
-            self.triangulate()
-        )?;
-        Ok(())
-    }
+    // pub async fn run(&self) -> Result<(), BoxError> {
+    //     try_join!(
+    //         self.listen_for_poses(),
+    //         self.listen_for_cameras(),
+    //         self.triangulate()
+    //     )?;
+    //     Ok(())
+    // }
 
-    pub async fn triangulate(&self) -> Result<(), BoxError> {
-        let mut i: i32 = 0;
-        let mut count: i32 = 0;
-        loop {
-            // Get current poses
-            let current = self.get_current_snapshot();
+    // pub async fn triangulate(&self) -> Result<(), BoxError> {
+    //     let mut i: i32 = 0;
+    //     let mut count: i32 = 0;
+    //     loop {
+    //         // Get current poses
+    //         let current = self.get_current_snapshot();
 
-            // Group by user
-            let users = self.group_poses_and_cameras_by_user(current);
-            for (i, (poses, camera_matrices)) in users.into_iter().enumerate() {
-                // See if we have enough cameras to proceed
-                if camera_matrices.len() >= self.config.min_cameras {
-                    // Reconstruct the 3D points
-                    let points3d =
-                        triangulate_from_poses_and_camera_matrices(poses, &camera_matrices);
-                    let pose3d = points3d.into();
-                    // let scored_pose3d = score_from_poses(poses, pose3d);
+    //         // Group by user
+    //         let users = self.group_poses_and_cameras_by_user(current);
+    //         for (i, (poses, camera_matrices)) in users.into_iter().enumerate() {
+    //             // See if we have enough cameras to proceed
+    //             if camera_matrices.len() >= self.config.min_cameras {
+    //                 // Reconstruct the 3D points
+    //                 let points3d =
+    //                     triangulate_from_poses_and_camera_matrices(poses, &camera_matrices);
+    //                 let pose3d = points3d.into();
+    //                 // let scored_pose3d = score_from_poses(poses, pose3d);
 
-                    // Send 3D points to VRPN
-                    self.poses3d_tx
-                        .send(LabeledPoses3D {
-                            group_name: self.group_name.clone(),
-                            poses: vec![pose3d],
-                            time: Instant::now(),
-                        })
-                        .unwrap();
-                    count += 1;
-                } else {
-                    // Otherwise, tell VRPN there are no new poses
-                    self.poses3d_tx
-                        .send(LabeledPoses3D {
-                            group_name: self.group_name.clone(),
-                            poses: Vec::new(),
-                            time: Instant::now(),
-                        })
-                        .unwrap();
-                }
-            }
+    //                 // Send 3D points to VRPN
+    //                 self.poses3d_tx
+    //                     .send(LabeledPoses3D {
+    //                         group_name: self.group_name.clone(),
+    //                         poses: vec![pose3d],
+    //                         time: Instant::now(),
+    //                     })
+    //                     .unwrap();
+    //                 count += 1;
+    //             } else {
+    //                 // Otherwise, tell VRPN there are no new poses
+    //                 self.poses3d_tx
+    //                     .send(LabeledPoses3D {
+    //                         group_name: self.group_name.clone(),
+    //                         poses: Vec::new(),
+    //                         time: Instant::now(),
+    //                     })
+    //                     .unwrap();
+    //             }
+    //         }
 
-            i = i % 100 + 1;
-            if i == 1 && count > 0 {
-                println!(
-                    "Generated 3D pose count for {} --> {}",
-                    self.group_name.clone() + ".pose0",
-                    count
-                );
-                count = 0;
-            }
+    //         i = i % 100 + 1;
+    //         if i == 1 && count > 0 {
+    //             println!(
+    //                 "Generated 3D pose count for {} --> {}",
+    //                 self.group_name.clone() + ".pose0",
+    //                 count
+    //             );
+    //             count = 0;
+    //         }
 
-            // This controls the VRPN update interval
-            sleep(self.config.poll_interval).await;
-        }
-    }
+    //         // This controls the VRPN update interval
+    //         sleep(self.config.poll_interval).await;
+    //     }
+    // }
 
-    async fn listen_for_poses(&self) -> Result<(), BoxError> {
-        loop {
-            let snapshot = self.snapshots_rx.recv().await?;
-            let camera_name = snapshot
-                .which_camera
-                .clone()
-                .map(|which_camera| which_camera.camera_name)
-                .ok_or(MissingField::CameraName)?;
-            self.poses
-                .write()
-                .expect("poses_hm lock poisoned!")
-                .insert(camera_name, snapshot);
-        }
-    }
+    // async fn listen_for_poses(&self) -> Result<(), BoxError> {
+    //     loop {
+    //         // TODO: Proper error handling
+    //         let snapshot = self.snapshots_rx.recv().await.expect("no message");
+    //         let camera_name = snapshot
+    //             .which_camera
+    //             .clone()
+    //             .map(|which_camera| which_camera.camera_name)
+    //             .ok_or(MissingField::CameraName)?;
+    //         self.poses
+    //             .write()
+    //             .expect("poses_hm lock poisoned!")
+    //             .insert(camera_name, snapshot);
+    //     }
+    // }
 
-    async fn listen_for_cameras(&self) -> Result<(), BoxError> {
-        loop {
-            let camera = self.cameras_rx.recv().await?;
-            let camera_name = camera
-                .which_camera
-                .as_ref()
-                .map(|which_camera| which_camera.camera_name.clone())
-                .ok_or(MissingField::CameraName)?;
-            let group_name = camera
-                .which_camera
-                .as_ref()
-                .map(|which_camera| which_camera.group_name.clone())
-                .ok_or(MissingField::GroupName)?;
-            let calibration = camera
-                .calibration
-                .clone()
-                .ok_or(MissingField::Calibration)?;
-            let matrix = calculate_camera_matrix(&calibration)?;
-            let state = CameraState {
-                info: camera,
-                matrix,
-            };
-            println!(
-                "New camera --> {}:{}",
-                group_name.clone(),
-                camera_name.clone()
-            );
-            self.cameras
-                .write()
-                .expect("cameras_hm lock poisoned!")
-                .insert(camera_name.clone(), state);
-        }
-    }
+    // async fn listen_for_cameras(&self) -> Result<(), BoxError> {
+    //     loop {
+    //         let camera = self.cameras_rx.recv().await?;
+    //         let camera_name = camera
+    //             .which_camera
+    //             .as_ref()
+    //             .map(|which_camera| which_camera.camera_name.clone())
+    //             .ok_or(MissingField::CameraName)?;
+    //         let group_name = camera
+    //             .which_camera
+    //             .as_ref()
+    //             .map(|which_camera| which_camera.group_name.clone())
+    //             .ok_or(MissingField::GroupName)?;
+    //         let calibration = camera
+    //             .calibration
+    //             .clone()
+    //             .ok_or(MissingField::Calibration)?;
+    //         let matrix = calculate_camera_matrix(&calibration)?;
+    //         let state = CameraState {
+    //             info: camera,
+    //             matrix,
+    //         };
+    //         println!(
+    //             "New camera --> {}:{}",
+    //             group_name.clone(),
+    //             camera_name.clone()
+    //         );
+    //         self.cameras
+    //             .write()
+    //             .expect("cameras_hm lock poisoned!")
+    //             .insert(camera_name.clone(), state);
+    //     }
+    // }
 
-    fn get_current_snapshot(&self) -> Vec<Snapshot> {
-        self.poses
-            .read()
-            .expect("state lock poisoned!")
-            .values()
-            .filter_map(|snapshot| {
-                // If the snapshot has a timestamp and we can parse it, make sure it isn't expired.
-                // If we can't parse the timestamp, ignore this snapshot.
-                let timestamp = snapshot.timestamp.clone()?;
-                let system_time = SystemTime::try_from(timestamp).ok()?;
-                let elapsed = system_time.elapsed().ok()?;
+    // fn get_current_snapshot(&self) -> Vec<Snapshot> {
+    //     self.poses
+    //         .read()
+    //         .expect("state lock poisoned!")
+    //         .values()
+    //         .filter_map(|snapshot| {
+    //             // If the snapshot has a timestamp and we can parse it, make sure it isn't expired.
+    //             // If we can't parse the timestamp, ignore this snapshot.
+    //             let timestamp = snapshot.timestamp.clone()?;
+    //             let system_time = SystemTime::try_from(timestamp).ok()?;
+    //             let elapsed = system_time.elapsed().ok()?;
 
-                if elapsed < self.config.pose_expiration {
-                    Some(snapshot.clone())
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
+    //             if elapsed < self.config.pose_expiration {
+    //                 Some(snapshot.clone())
+    //             } else {
+    //                 None
+    //             }
+    //         })
+    //         .collect()
+    // }
 
     fn get_pose_for_user(&self, pose: &Snapshot, user_id: usize) -> Option<Pose2D> {
         // TODO identify user somehow, so that poses from different cameras can be grouped

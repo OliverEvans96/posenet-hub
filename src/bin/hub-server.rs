@@ -1,4 +1,4 @@
-use async_std::channel;
+use tokio::sync::mpsc::unbounded_channel;
 // use std::error::Error;
 use tokio::{sync::broadcast, try_join};
 
@@ -16,31 +16,31 @@ async fn main() -> Result<(), BoxError> {
 
     log::info!("Hub main start");
 
-    // Create communication channels
-    let (cameras_tx, cameras_rx) = channel::unbounded::<CameraInfo>();
-    let (snapshots_tx, snapshots_rx) = channel::unbounded::<Snapshot>();
-    // let (poses3d_tx, poses3d_rx) = channel::unbounded::<Option<Pose3D>>();
-    let (poses3d_bcast_tx, poses3d_bcast_rx) = broadcast::channel::<LabeledPoses3D>(100);
+    // // Create communication channels
+    // let (cameras_tx, cameras_rx) = unbounded_channel::<CameraInfo>();
+    // let (snapshots_tx, snapshots_rx) = unbounded_channel::<Snapshot>();
+    // // let (poses3d_tx, poses3d_rx) = channel::unbounded::<Option<Pose3D>>();
+    // let (poses3d_bcast_tx, poses3d_bcast_rx) = broadcast::channel::<LabeledPoses3D>(100);
 
-    // Create controller
-    let triangulator_config = TriangulatorConfig::default();
-    let controller = Controller::new(
-        triangulator_config,
-        cameras_rx,
-        snapshots_rx,
-        poses3d_bcast_tx,
-    );
+    // // Create controller
+    // let triangulator_config = TriangulatorConfig::default();
+    // let controller = Controller::new(
+    //     triangulator_config,
+    //     cameras_rx,
+    //     snapshots_rx,
+    //     poses3d_bcast_tx,
+    // );
 
-    // Create gRPC server
-    let grpc_config = GrpcConfig::default();
-    let grpc_server = GrpcServer::new(grpc_config, cameras_tx, snapshots_tx);
+    // // Create gRPC server
+    // let grpc_config = GrpcConfig::default();
+    // let grpc_server = GrpcServer::new(grpc_config, cameras_tx, snapshots_tx);
 
-    // Create VRPN server
-    let vrpn_config = VrpnConfig::default();
-    let mut vrpn_server = VrpnServer::new(vrpn_config, poses3d_bcast_rx);
+    // // Create VRPN server
+    // let vrpn_config = VrpnConfig::default();
+    // let mut vrpn_server = VrpnServer::new(vrpn_config, poses3d_bcast_rx);
 
-    // Run all three components concurrently
-    try_join!(controller.run(), grpc_server.run(), vrpn_server.run())?;
+    // // Run all three components concurrently
+    // try_join!(controller.run(), grpc_server.run(), vrpn_server.run())?;
     log::info!("Hub main end");
 
     Ok(())

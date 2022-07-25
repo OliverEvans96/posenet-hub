@@ -1,9 +1,9 @@
-use async_std;
 use rand::distributions::Alphanumeric;
 use rand::prelude::ThreadRng;
 use rand::{thread_rng, Rng};
 use std::error::Error;
 use std::time::SystemTime;
+use tokio::sync::mpsc::{channel, Sender};
 use tokio::time::{sleep, Duration};
 use tonic::{transport::Channel, Request};
 
@@ -80,7 +80,7 @@ fn generate_name() -> String {
 pub async fn stream_inner(
     group_name: String,
     camera_name: String,
-    tx: async_std::channel::Sender<Snapshot>,
+    tx: Sender<Snapshot>,
     rng: &mut ThreadRng,
 ) -> Result<(), Box<dyn Error>> {
     let nposes: u32 = 1000;
@@ -105,8 +105,6 @@ pub async fn stream_inner(
         sleep(Duration::from_millis(50)).await;
     }
 
-    tx.close();
-
     Ok(())
 }
 
@@ -116,7 +114,7 @@ pub async fn stream_poses(
     camera_name: String,
 ) -> Result<(), Box<dyn Error>> {
     let buf_size = 10;
-    let (tx, rx) = async_std::channel::bounded::<Snapshot>(buf_size);
+    let (tx, rx) = channel::<Snapshot>(buf_size);
     let request = Request::new(rx);
     println!("Sending request");
 

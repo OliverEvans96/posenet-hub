@@ -11,7 +11,6 @@ use tokio::{sync::broadcast, try_join};
 use tokio_stream::StreamExt;
 
 use posenet_vr_hub::grpc::proto::Pose3D;
-use posenet_vr_hub::grpc::server::LabeledPoses2D;
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
 
 #[derive(Parser)]
