@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::{sync::broadcast, try_join};
@@ -8,7 +9,7 @@ use clap::Parser;
 use posenet_vr_hub::controller::Controller;
 use posenet_vr_hub::grpc::proto::CameraInfo;
 use posenet_vr_hub::grpc::proto::Snapshot;
-use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer};
+use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer, HubServer};
 use posenet_vr_hub::triangulator::{LabeledPoses3D, PoseStreamUpdate, TriangulatorConfig};
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
 use posenet_vr_hub::websocket::{WebSocketConfig, WebSocketServer};
@@ -45,8 +46,9 @@ async fn main() -> anyhow::Result<()> {
         stream_bcast_tx.clone(),
     );
 
+    let hub = Arc::new(HubServer::new(cameras_tx, snapshots_tx));
     let grpc_config = GrpcConfig::default();
-    let grpc_server = GrpcServer::new(grpc_config, cameras_tx, snapshots_tx);
+    let grpc_server = GrpcServer::new(grpc_config, hub.clone());
 
     let run_controller = async move {
         match controller.run().await {
@@ -90,8 +92,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let run_ws: Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> = if opts.ws {
-        let ws_server =
-            WebSocketServer::new(WebSocketConfig::default(), stream_bcast_tx.subscribe());
+        let ws_server = WebSocketServer::new(
+            WebSocketConfig::default(),
+            stream_bcast_tx.subscribe(),
+            Some(hub.clone()),
+        );
         Box::pin(async move {
             match ws_server.run().await {
                 Ok(()) => Ok(()),

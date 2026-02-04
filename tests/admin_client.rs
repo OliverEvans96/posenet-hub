@@ -7,6 +7,7 @@
 //! runner does not hang if the server or network stalls.
 
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
@@ -35,10 +36,10 @@ async fn start_test_server() -> u16 {
         let _ = snapshots_rx;
         std::future::pending::<()>().await
     });
+    let hub = Arc::new(posenet_vr_hub::grpc::server::HubServer::new(cameras_tx, snapshots_tx));
     let config =
         posenet_vr_hub::grpc::server::GrpcConfig::new("127.0.0.1", port).expect("test GrpcConfig");
-    let grpc_server =
-        posenet_vr_hub::grpc::server::GrpcServer::new(config, cameras_tx, snapshots_tx);
+    let grpc_server = posenet_vr_hub::grpc::server::GrpcServer::new(config, hub);
     tokio::spawn(async move {
         let _ = grpc_server.run().await;
     });

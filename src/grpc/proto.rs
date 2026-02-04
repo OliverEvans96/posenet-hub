@@ -134,6 +134,31 @@ impl From<(Vec<SPoint3>, f64)> for Pose3D {
     }
 }
 
+/// Build a Pose3D from 17 optional keypoints and a score (for partial triangulation).
+/// Keypoints with `None` remain unset in the output.
+pub fn pose3d_from_partial(keypoints: [Option<SPoint3>; 17], score: f64) -> Pose3D {
+    Pose3D {
+        nose: keypoints[0].map(Into::into),
+        left_eye: keypoints[1].map(Into::into),
+        right_eye: keypoints[2].map(Into::into),
+        left_ear: keypoints[3].map(Into::into),
+        right_ear: keypoints[4].map(Into::into),
+        left_shoulder: keypoints[5].map(Into::into),
+        right_shoulder: keypoints[6].map(Into::into),
+        left_elbow: keypoints[7].map(Into::into),
+        right_elbow: keypoints[8].map(Into::into),
+        left_wrist: keypoints[9].map(Into::into),
+        right_wrist: keypoints[10].map(Into::into),
+        left_hip: keypoints[11].map(Into::into),
+        right_hip: keypoints[12].map(Into::into),
+        left_knee: keypoints[13].map(Into::into),
+        right_knee: keypoints[14].map(Into::into),
+        left_ankle: keypoints[15].map(Into::into),
+        right_ankle: keypoints[16].map(Into::into),
+        score,
+    }
+}
+
 // Pose keypoint names for error messages
 /// Keypoint names in the same order as Pose2D/Pose3D fields.
 pub const POSE_KEYPOINTS: [&str; 17] = [
@@ -182,6 +207,31 @@ fn pose2d_to_spoints(pose: &Pose2D) -> Result<(Vec<SPoint2>, f64), MissingField>
         out.push(p.clone().into());
     }
     Ok((out, pose.score))
+}
+
+/// Extract 2D keypoints from a pose, allowing missing keypoints (None where not present).
+/// Never fails; used for partial triangulation.
+pub fn pose2d_to_spoints_partial(pose: &Pose2D) -> ([Option<SPoint2>; 17], f64) {
+    let opts: [Option<SPoint2>; 17] = [
+        pose.nose.as_ref().map(|p| p.clone().into()),
+        pose.left_eye.as_ref().map(|p| p.clone().into()),
+        pose.right_eye.as_ref().map(|p| p.clone().into()),
+        pose.left_ear.as_ref().map(|p| p.clone().into()),
+        pose.right_ear.as_ref().map(|p| p.clone().into()),
+        pose.left_shoulder.as_ref().map(|p| p.clone().into()),
+        pose.right_shoulder.as_ref().map(|p| p.clone().into()),
+        pose.left_elbow.as_ref().map(|p| p.clone().into()),
+        pose.right_elbow.as_ref().map(|p| p.clone().into()),
+        pose.left_wrist.as_ref().map(|p| p.clone().into()),
+        pose.right_wrist.as_ref().map(|p| p.clone().into()),
+        pose.left_hip.as_ref().map(|p| p.clone().into()),
+        pose.right_hip.as_ref().map(|p| p.clone().into()),
+        pose.left_knee.as_ref().map(|p| p.clone().into()),
+        pose.right_knee.as_ref().map(|p| p.clone().into()),
+        pose.left_ankle.as_ref().map(|p| p.clone().into()),
+        pose.right_ankle.as_ref().map(|p| p.clone().into()),
+    ];
+    (opts, pose.score)
 }
 
 fn pose3d_to_spoints(pose: &Pose3D) -> Result<(Vec<SPoint3>, f64), MissingField> {

@@ -22,22 +22,22 @@ cameras:
   - name: "cam_front_left"
     position: [3.2, 3.0, 2.4]
     look_at: [0.0, 0.0, 1.0]
-    fov_deg: 75
+    fov_deg: 60
 
   # Front-right (ceiling-ish corner)
   - name: "cam_front_right"
     position: [-3.2, 3.0, 2.4]
     look_at: [0.0, 0.0, 1.0]
-    fov_deg: 75
+    fov_deg: 60
 
   # Back-left (high wall mount)
   - name: "cam_back_left"
     position: [3.0, -3.2, 2.1]
     look_at: [0.0, 0.0, 1.0]
-    fov_deg: 75
+    fov_deg: 60
 
   # Back-right (high wall mount)
   - name: "cam_back_right"
     position: [-3.0, -3.2, 2.1]
     look_at: [0.0, 0.0, 1.0]
-    fov_deg: 75
+    fov_deg: 60

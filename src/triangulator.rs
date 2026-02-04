@@ -8,8 +8,11 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::{sync::broadcast, time::sleep, try_join};
 
 use crate::errors::{CalculationError, HubError, MissingField};
-use crate::grpc::proto::{CalibrationParameters, CameraInfo, Pose2D, Pose3D, SPoint2, Snapshot};
-use crate::openmvg::openmvg::triangulate_many;
+use crate::grpc::proto::{
+    pose2d_to_spoints_partial, pose3d_from_partial, CalibrationParameters, CameraInfo, Pose2D,
+    Pose3D, SPoint2, SPoint3, Snapshot,
+};
+use crate::openmvg::openmvg::{triangulate, triangulate_many};
 use crate::utils::transpose_vecvec;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -92,6 +95,24 @@ fn collect_points_by_keypoint(poses: Vec<Pose2D>) -> Result<Vec<Vec<SPoint2>>, H
         .collect::<Result<Vec<_>, _>>()?;
     let points_grouped_by_keypoint = transpose_vecvec(&points_grouped_by_camera)?;
     Ok(points_grouped_by_keypoint)
+}
+
+/// Group 2D observations by keypoint for partial poses (allows missing keypoints per camera).
+/// Returns, for each keypoint index 0..17, a list of (camera_index, SPoint2) for cameras that have that keypoint.
+fn collect_points_by_keypoint_partial(poses: &[Pose2D]) -> Vec<Vec<(usize, SPoint2)>> {
+    let partials: Vec<([Option<SPoint2>; 17], f64)> = poses
+        .iter()
+        .map(|p| pose2d_to_spoints_partial(p))
+        .collect();
+    (0..17)
+        .map(|k| {
+            partials
+                .iter()
+                .enumerate()
+                .filter_map(|(cam_idx, (opts, _))| opts[k].as_ref().map(|s| (cam_idx, s.clone())))
+                .collect()
+        })
+        .collect()
 }
 
 pub fn calculate_camera_matrix(
@@ -219,6 +240,44 @@ pub fn triangulate_from_poses_and_camera_matrices(
         .zip(keypoint_scores.into_iter())
         .collect();
     Ok((scored_points3d, pose_score).into())
+}
+
+/// Triangulate from 2D poses that may have missing keypoints (partial poses).
+/// For each keypoint we use only cameras that have that keypoint; if fewer than 2, that 3D keypoint is None.
+/// Single-keypoint triangulation failures (e.g. degenerate) also yield None for that keypoint.
+pub fn triangulate_from_poses_and_camera_matrices_partial(
+    poses: &[Pose2D],
+    camera_matrices: &[Matrix3x4<f64>],
+) -> Result<Pose3D, HubError> {
+    let pose_score = poses
+        .iter()
+        .fold(1.0, |total, pose| f64::min(total, pose.score));
+
+    let keypoints_per_index = collect_points_by_keypoint_partial(poses);
+
+    let mut keypoints3d: [Option<SPoint3>; 17] = [None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None];
+
+    for (k, observations) in keypoints_per_index.iter().enumerate() {
+        if observations.len() < 2 {
+            continue;
+        }
+        let points2d: Vec<Point2<f64>> = observations.iter().map(|(_, (p, _))| *p).collect();
+        let matrices: Vec<Matrix3x4<f64>> = observations
+            .iter()
+            .map(|(i, _)| camera_matrices[*i])
+            .collect();
+        match triangulate(&points2d, &matrices) {
+            Ok(p3) => {
+                let score = observations
+                    .iter()
+                    .fold(1.0, |acc, (_, (_, s))| f64::min(acc, *s));
+                keypoints3d[k] = Some((p3, score));
+            }
+            Err(_) => {}
+        }
+    }
+
+    Ok(pose3d_from_partial(keypoints3d, pose_score))
 }
 
 // pub fn score_from_poses(poses: Vec<Pose2D>, pose3d: Pose3D)
@@ -459,7 +518,10 @@ impl Triangulator {
             for (poses_3d, camera_matrices) in users {
                 let n_views = camera_matrices.len();
                 if n_views >= config.min_cameras {
-                    match triangulate_from_poses_and_camera_matrices(poses_3d, &camera_matrices) {
+                    match triangulate_from_poses_and_camera_matrices_partial(
+                        &poses_3d,
+                        &camera_matrices,
+                    ) {
                         Ok(pose3d) => {
                             log::info!(
                                 "Triangulator [{}]: triangulated 1 pose ({} views), broadcasting",
@@ -722,6 +784,93 @@ mod tests {
         let rec = Point3::new(pts.x, pts.y, pts.z);
         let err = (rec - x3d).norm();
         assert!(err < 1e-5, "reconstruction error {} for x3d {:?}", err, x3d);
+    }
+
+    #[test]
+    fn test_triangulate_partial_pose_missing_keypoint_yields_none() {
+        // Same geometry as roundtrip: two cameras, one 3D point. Camera 0 has nose missing;
+        // camera 1 has all keypoints. Nose has only 1 observation → nose 3D is None; others have 2 → Some.
+        let c1 = Point3::new(0.0, 0.0, 0.0);
+        let r1 = Rotation3::identity();
+        let c2 = Point3::new(2.0, 0.0, 0.0);
+        let r2 = Rotation3::identity();
+        let p1 = create_camera_matrix(c1, r1);
+        let p2 = create_camera_matrix(c2, r2);
+        let cameras = vec![p1.clone(), p2.clone()];
+
+        let x3d = Point3::new(1.0, 0.0, 5.0);
+        let pose2d_1 = get_projection(x3d, p1.clone()).unwrap();
+        let pose2d_2 = get_projection(x3d, p2).unwrap();
+
+        let point2d_1 = Point2D {
+            x: pose2d_1.x,
+            y: pose2d_1.y,
+            score: 1.0,
+        };
+        let point2d_2 = Point2D {
+            x: pose2d_2.x,
+            y: pose2d_2.y,
+            score: 1.0,
+        };
+
+        let pt1 = point2d_1.clone();
+        let pose_2d_1 = crate::grpc::proto::Pose2D {
+            nose: None, // missing in camera 0
+            left_eye: Some(pt1.clone()),
+            right_eye: Some(pt1.clone()),
+            left_ear: Some(pt1.clone()),
+            right_ear: Some(pt1.clone()),
+            left_shoulder: Some(pt1.clone()),
+            right_shoulder: Some(pt1.clone()),
+            left_elbow: Some(pt1.clone()),
+            right_elbow: Some(pt1.clone()),
+            left_wrist: Some(pt1.clone()),
+            right_wrist: Some(pt1.clone()),
+            left_hip: Some(pt1.clone()),
+            right_hip: Some(pt1.clone()),
+            left_knee: Some(pt1.clone()),
+            right_knee: Some(pt1.clone()),
+            left_ankle: Some(pt1.clone()),
+            right_ankle: Some(pt1),
+            score: 1.0,
+        };
+        let pt2 = point2d_2.clone();
+        let pose_2d_2 = crate::grpc::proto::Pose2D {
+            nose: Some(point2d_2.clone()),
+            left_eye: Some(pt2.clone()),
+            right_eye: Some(pt2.clone()),
+            left_ear: Some(pt2.clone()),
+            right_ear: Some(pt2.clone()),
+            left_shoulder: Some(pt2.clone()),
+            right_shoulder: Some(pt2.clone()),
+            left_elbow: Some(pt2.clone()),
+            right_elbow: Some(pt2.clone()),
+            left_wrist: Some(pt2.clone()),
+            right_wrist: Some(pt2.clone()),
+            left_hip: Some(pt2.clone()),
+            right_hip: Some(pt2.clone()),
+            left_knee: Some(pt2.clone()),
+            right_knee: Some(pt2.clone()),
+            left_ankle: Some(pt2.clone()),
+            right_ankle: Some(pt2),
+            score: 1.0,
+        };
+        let poses = vec![pose_2d_1, pose_2d_2];
+
+        let pose3d =
+            triangulate_from_poses_and_camera_matrices_partial(&poses, &cameras).unwrap();
+        assert!(pose3d.nose.is_none(), "nose had only 1 observation, should be None");
+        assert!(
+            pose3d.left_eye.is_some(),
+            "left_eye had 2 observations, should be Some"
+        );
+        let rec = Point3::new(
+            pose3d.left_eye.as_ref().unwrap().x,
+            pose3d.left_eye.as_ref().unwrap().y,
+            pose3d.left_eye.as_ref().unwrap().z,
+        );
+        let err = (rec - x3d).norm();
+        assert!(err < 1e-5, "reconstruction error {} for left_eye", err);
     }
 
     #[test]

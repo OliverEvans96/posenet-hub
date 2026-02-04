@@ -45,6 +45,132 @@ body {
   white-space: nowrap;
 }
 
+.info-bar-label {
+  color: #8b949e;
+}
+
+.group-select {
+  background: #21262d;
+  color: #e6edf3;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  min-width: 8rem;
+}
+
+.group-select:focus {
+  outline: none;
+  border-color: #58a6ff;
+}
+
+/* Left pane: control panel */
+.left-pane {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #161b22;
+  border-right: 1px solid #30363d;
+  transition: flex-basis 0.2s ease, min-width 0.2s ease;
+}
+
+.left-pane.collapsed {
+  flex: 0 0 2.5rem;
+  min-width: 2.5rem;
+}
+
+.left-pane.collapsed .control-panel-heading {
+  display: none;
+}
+
+.left-pane.collapsed .right-pane-content {
+  display: none;
+}
+
+.control-panel-heading {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #e6edf3;
+}
+
+.control-selectors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.control-selector-label {
+  font-size: 0.8125rem;
+  color: #8b949e;
+}
+
+.control-select {
+  min-width: 8rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.8125rem;
+  color: #e6edf3;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+}
+
+.control-section {
+  margin-bottom: 1rem;
+}
+
+.control-section-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #8b949e;
+}
+
+.control-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.control-btn {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8125rem;
+  color: #e6edf3;
+  background: #21262d;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.control-btn:hover {
+  background: #30363d;
+}
+
+.control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.control-output {
+  margin: 0;
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #8b949e;
+}
+
 .status.connected {
   color: #3fb950;
 }

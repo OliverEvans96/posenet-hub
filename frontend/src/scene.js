@@ -87,7 +87,7 @@ export function createPoseScene(container) {
     boneMeshes.push(line);
   }
 
-  function clear() {
+  function clearPoses() {
     jointMeshes.forEach((m) => {
       m.geometry.dispose();
       if (m.material.dispose) m.material.dispose();
@@ -100,7 +100,9 @@ export function createPoseScene(container) {
       group.remove(m);
     });
     boneMeshes.length = 0;
+  }
 
+  function clearCameras() {
     cameraObjects.forEach((o) => {
       if (o.geometry?.dispose) o.geometry.dispose();
       if (o.material?.dispose) o.material.dispose();
@@ -156,10 +158,13 @@ export function createPoseScene(container) {
   }
 
   function update(msg) {
-    clear();
-    if (Array.isArray(msg.cameras)) {
+    // Only replace cameras when we receive a non-empty list (sent on connect / camera register).
+    // Pose updates send cameras: [], so we must not clear cameras on every message.
+    if (Array.isArray(msg.cameras) && msg.cameras.length > 0) {
+      clearCameras();
       for (const c of msg.cameras) addCameraModel(c);
     }
+    clearPoses();
     if (!msg.poses || msg.poses.length === 0) return;
     const pose = msg.poses[0];
     const keypoints = pose.keypoints;
@@ -189,7 +194,8 @@ export function createPoseScene(container) {
     dispose: () => {
       window.removeEventListener('resize', onResize);
       controls.dispose();
-      clear();
+      clearPoses();
+      clearCameras();
       renderer.dispose();
       if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
     },

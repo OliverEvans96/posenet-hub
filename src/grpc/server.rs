@@ -55,6 +55,28 @@ pub struct HubServer {
     camera_info: RwLock<HashMap<CameraIdentifier, CameraInfo>>,
 }
 
+impl HubServer {
+    /// Create a new HubServer with empty session/cache state. Caller keeps cameras_tx/snapshots_tx.
+    pub fn new(
+        cameras_tx: mpsc::UnboundedSender<CameraInfo>,
+        snapshots_tx: mpsc::UnboundedSender<Snapshot>,
+    ) -> Self {
+        let stream_cache = Arc::new(RwLock::new(HashMap::new()));
+        let stream_state = Arc::new(RwLock::new(HashMap::new()));
+        Self {
+            cameras_tx,
+            snapshots_tx,
+            session_tokens: RwLock::new(HashMap::new()),
+            stream_cache,
+            stream_state,
+            control_channels: RwLock::new(HashMap::new()),
+            pending_control_rx: RwLock::new(HashMap::new()),
+            data_channels: RwLock::new(HashMap::new()),
+            camera_info: RwLock::new(HashMap::new()),
+        }
+    }
+}
+
 #[tonic::async_trait]
 impl HubService for HubServer {
     // TODO: Create custom stream type that notifies hub server when client disconnects.
@@ -995,6 +1017,96 @@ impl HubService for HubServer {
     }
 }
 
+#[tonic::async_trait]
+impl HubService for Arc<HubServer> {
+    type CameraControlStream = <HubServer as HubService>::CameraControlStream;
+
+    async fn hello(&self, request: Request<CameraInfo>) -> Result<Response<SessionToken>, Status> {
+        self.as_ref().hello(request).await
+    }
+
+    async fn camera_control(
+        &self,
+        request: Request<SessionToken>,
+    ) -> Result<Response<Self::CameraControlStream>, Status> {
+        self.as_ref().camera_control(request).await
+    }
+
+    async fn camera_data_sink(
+        &self,
+        request: Request<tonic::Streaming<CameraMessage>>,
+    ) -> Result<Response<SendDataSuccess>, Status> {
+        self.as_ref().camera_data_sink(request).await
+    }
+
+    async fn list_groups(
+        &self,
+        request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        self.as_ref().list_groups(request).await
+    }
+
+    async fn list_cameras(
+        &self,
+        request: Request<ListCamerasRequest>,
+    ) -> Result<Response<ListCamerasResponse>, Status> {
+        self.as_ref().list_cameras(request).await
+    }
+
+    async fn get_camera_info(
+        &self,
+        request: Request<CameraIdentifier>,
+    ) -> Result<Response<CameraInfo>, Status> {
+        self.as_ref().get_camera_info(request).await
+    }
+
+    async fn stream_control(
+        &self,
+        request: Request<StreamControlRequest>,
+    ) -> Result<Response<StreamStatus>, Status> {
+        self.as_ref().stream_control(request).await
+    }
+
+    async fn take_snapshots(
+        &self,
+        request: Request<ServerSnapshotRequest>,
+    ) -> Result<Response<ServerSnapshotResponse>, Status> {
+        self.as_ref().take_snapshots(request).await
+    }
+
+    async fn get_current(
+        &self,
+        request: Request<CameraIdentifier>,
+    ) -> Result<Response<ServerSnapshotResponse>, Status> {
+        self.as_ref().get_current(request).await
+    }
+
+    async fn calibrate(
+        &self,
+        request: Request<CalibrationRequest>,
+    ) -> Result<Response<CalibrationResponse>, Status> {
+        self.as_ref().calibrate(request).await
+    }
+
+    async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
+        self.as_ref().ping(request).await
+    }
+
+    async fn triangulate(
+        &self,
+        request: Request<tonic::Streaming<TriangulationRequest>>,
+    ) -> Result<Response<TriangulationResponse>, Status> {
+        self.as_ref().triangulate(request).await
+    }
+
+    async fn bundle_adjustment(
+        &self,
+        request: Request<BundleAdjustmentRequest>,
+    ) -> Result<Response<BundleAdjustmentResponse>, Status> {
+        self.as_ref().bundle_adjustment(request).await
+    }
+}
+
 fn construct_calibration_state(
     camera: CameraUniqueIdentifier,
     maybe_response: Option<CommandResponse>,
@@ -1355,42 +1467,19 @@ impl Default for GrpcConfig {
 
 pub struct GrpcServer {
     config: GrpcConfig,
-    cameras_tx: mpsc::UnboundedSender<CameraInfo>,
-    snapshots_tx: mpsc::UnboundedSender<Snapshot>,
+    hub: Arc<HubServer>,
 }
 
 impl GrpcServer {
-    pub fn new(
-        config: GrpcConfig,
-        cameras_tx: mpsc::UnboundedSender<CameraInfo>,
-        snapshots_tx: mpsc::UnboundedSender<Snapshot>,
-    ) -> Self {
-        Self {
-            config,
-            cameras_tx,
-            snapshots_tx,
-        }
+    pub fn new(config: GrpcConfig, hub: Arc<HubServer>) -> Self {
+        Self { config, hub }
     }
 
     pub async fn run(self) -> anyhow::Result<()> {
         log::info!("PoseNet Hub gRPC service listening on {}", self.config.addr);
 
-        let stream_cache = Arc::new(RwLock::new(HashMap::new()));
-        let stream_state = Arc::new(RwLock::new(HashMap::new()));
-        let hub_server = HubServer {
-            cameras_tx: self.cameras_tx,
-            snapshots_tx: self.snapshots_tx,
-            session_tokens: RwLock::new(HashMap::new()),
-            stream_cache,
-            stream_state,
-            control_channels: RwLock::new(HashMap::new()),
-            pending_control_rx: RwLock::new(HashMap::new()),
-            data_channels: RwLock::new(HashMap::new()),
-            camera_info: RwLock::new(HashMap::new()),
-        };
-
         Server::builder()
-            .add_service(HubServiceServer::new(hub_server))
+            .add_service(HubServiceServer::new(self.hub))
             .serve(self.config.addr)
             .await?;
 
@@ -1402,6 +1491,7 @@ impl GrpcServer {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicU16, Ordering};
+    use std::sync::Arc;
     use std::time::Duration;
 
     use tokio::sync::mpsc;
@@ -1435,8 +1525,9 @@ mod tests {
             let _ = snapshots_rx;
             std::future::pending::<()>().await
         });
+        let hub = Arc::new(crate::grpc::server::HubServer::new(cameras_tx, snapshots_tx));
         let config = crate::grpc::server::GrpcConfig::new("127.0.0.1", port).expect("GrpcConfig");
-        let grpc_server = crate::grpc::server::GrpcServer::new(config, cameras_tx, snapshots_tx);
+        let grpc_server = crate::grpc::server::GrpcServer::new(config, hub);
         tokio::spawn(async move {
             let _ = grpc_server.run().await;
         });

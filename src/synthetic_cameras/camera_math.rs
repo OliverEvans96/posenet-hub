@@ -51,7 +51,14 @@ pub fn view_matrix_from_position_look_at(
     let right = forward.cross(&up_used).normalize();
     // Use forward.cross(right) so that det[R] = +1 (right-handed camera frame).
     let up = forward.cross(&right).normalize();
-    let r = Rotation3::from_matrix(&Matrix3::from_columns(&[right, up, forward]));
+    // OpenMVG/triangulator: R is world-to-camera, so ROWS of R are the camera axes in world
+    // (row 0 = right, row 1 = up, row 2 = forward). Projection depth = row 2 · (x - C).
+    // Triangulator extracts right/up/forward as first/second/third row of stored R.
+    let r = Rotation3::from_matrix(&Matrix3::from_row_slice(&[
+        right.x, right.y, right.z,
+        up.x, up.y, up.z,
+        forward.x, forward.y, forward.z,
+    ]));
     crate::openmvg::openmvg::create_camera_matrix(position, r)
 }
 

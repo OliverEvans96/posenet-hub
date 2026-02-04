@@ -12,8 +12,21 @@ const JOINT_RADIUS = 4;
 const CANVAS_WIDTH = 320;
 const CANVAS_HEIGHT = 240;
 
-/** Fixed scale: smaller value = larger field of view (more of the scene visible). */
-const POSE_SCALE = 0.25;
+/**
+ * Source image size used by synthetic cameras (and assumed for 2D pose coords).
+ * Backend projects into [0, SOURCE_IMAGE_WIDTH] x [0, SOURCE_IMAGE_HEIGHT].
+ * We map that extent to the canvas so (0,0) is top-left and (SOURCE_*, SOURCE_*) is bottom-right.
+ */
+const SOURCE_IMAGE_WIDTH = 640;
+const SOURCE_IMAGE_HEIGHT = 480;
+
+/**
+ * Scale from source image pixels to canvas pixels (full image [0,640]x[0,480] fills canvas).
+ * Same factor for x and y so aspect ratio is preserved.
+ */
+const POSE_SCALE = CANVAS_WIDTH / SOURCE_IMAGE_WIDTH;
+const POSE_OFFSET_X = 0;
+const POSE_OFFSET_Y = 0;
 
 /**
  * @param {HTMLDivElement} container
@@ -89,8 +102,6 @@ export function createCameraViews(container) {
 
     const w = CANVAS_WIDTH;
     const h = CANVAS_HEIGHT;
-    const offsetX = w / 2;
-    const offsetY = h / 2;
 
     for (const view of camera_views) {
       const entry = ensurePanel(view.camera_name);
@@ -126,7 +137,7 @@ export function createCameraViews(container) {
         continue;
       }
 
-      drawSkeleton(ctx, pose, POSE_SCALE, offsetX, offsetY);
+      drawSkeleton(ctx, pose, POSE_SCALE, POSE_OFFSET_X, POSE_OFFSET_Y);
       ctx.restore();
     }
 

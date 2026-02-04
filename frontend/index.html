@@ -12,6 +12,10 @@
         <h1>PoseNet Hub – Pose Stream</h1>
         <div class="info-bar" id="info-bar">
           <span id="connection-status">Disconnected</span>
+          <label for="group-select" class="info-bar-label">Group</label>
+          <select id="group-select" class="group-select" aria-label="Select pose stream group">
+            <option value="">—</option>
+          </select>
           <span id="group-name">—</span>
           <span id="pose-count">0 poses</span>
           <span id="timestamp">—</span>
@@ -20,6 +24,50 @@
       </header>
       <main class="main-content">
         <div id="canvas-container"></div>
+        <aside id="control-pane" class="left-pane" aria-label="Admin control panel">
+          <div class="right-pane-header">
+            <h2 class="control-panel-heading">Control panel</h2>
+            <button type="button" id="control-pane-toggle" class="pane-toggle" aria-expanded="true" aria-controls="control-pane-content" title="Toggle control panel">−</button>
+          </div>
+          <div id="control-pane-content" class="right-pane-content">
+            <div class="control-selectors">
+              <label for="control-camera-select" class="control-selector-label">Camera</label>
+              <select id="control-camera-select" class="control-select" aria-label="Camera for admin commands">
+                <option value="">(all)</option>
+              </select>
+            </div>
+            <div class="control-section">
+              <h3 class="control-section-title">Groups &amp; cameras</h3>
+              <div class="control-actions">
+                <button type="button" id="btn-list-groups" class="control-btn">List groups</button>
+                <button type="button" id="btn-list-cameras" class="control-btn">List cameras</button>
+                <button type="button" id="btn-get-camera-info" class="control-btn">Get camera info</button>
+              </div>
+            </div>
+            <div class="control-section">
+              <h3 class="control-section-title">Stream</h3>
+              <div class="control-actions">
+                <button type="button" id="btn-stream-start" class="control-btn">Start streaming</button>
+                <button type="button" id="btn-stream-stop" class="control-btn">Stop streaming</button>
+              </div>
+            </div>
+            <div class="control-section">
+              <h3 class="control-section-title">Snapshots</h3>
+              <div class="control-actions">
+                <button type="button" id="btn-take-snapshots" class="control-btn">Take snapshots</button>
+                <button type="button" id="btn-get-current" class="control-btn">Get current</button>
+              </div>
+            </div>
+            <div class="control-section">
+              <h3 class="control-section-title">Calibrate &amp; ping</h3>
+              <div class="control-actions">
+                <button type="button" id="btn-calibrate" class="control-btn">Calibrate</button>
+                <button type="button" id="btn-ping" class="control-btn">Ping</button>
+              </div>
+            </div>
+            <pre id="out-control" class="control-output" aria-live="polite"></pre>
+          </div>
+        </aside>
         <aside id="camera-views-pane" class="right-pane" aria-label="Camera views">
           <div class="right-pane-header">
             <h2 class="camera-views-heading">Camera views</h2>
