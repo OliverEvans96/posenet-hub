@@ -3,13 +3,14 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::{sync::broadcast, try_join};
+use tokio::sync::broadcast;
 
 use clap::Parser;
 use posenet_vr_hub::controller::Controller;
 use posenet_vr_hub::grpc::proto::CameraInfo;
 use posenet_vr_hub::grpc::proto::Snapshot;
 use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer, HubServer};
+use posenet_vr_hub::http_server::{HttpConfig, HttpServer};
 use posenet_vr_hub::triangulator::{LabeledPoses3D, PoseStreamUpdate, TriangulatorConfig};
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
 use posenet_vr_hub::websocket::{WebSocketConfig, WebSocketServer};
@@ -107,7 +108,19 @@ async fn main() -> anyhow::Result<()> {
         Box::pin(std::future::pending())
     };
 
-    try_join!(run_controller, run_grpc, run_ws)?;
+    let run_http: Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> = if opts.ws {
+        let http_server = HttpServer::new(HttpConfig::default(), hub.clone());
+        Box::pin(async move {
+            match http_server.run().await {
+                Ok(()) => Ok(()),
+                Err(e) => Err(anyhow::Error::msg(e.to_string())),
+            }
+        })
+    } else {
+        Box::pin(std::future::pending())
+    };
+
+    tokio::try_join!(run_controller, run_grpc, run_ws, run_http)?;
     log::info!("Hub main end");
 
     Ok(())

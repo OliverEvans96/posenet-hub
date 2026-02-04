@@ -78,13 +78,26 @@ function getWsUrl() {
   return `${proto}//${host}:${wsPort}`;
 }
 
+/** Base URL for MJPEG camera streams (HTTP server, default port 9002). */
+function getVideoBaseUrl() {
+  const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
+  const host = window.location.hostname || 'localhost';
+  const videoPort = new URL(window.location.href).searchParams.get('video') || '9002';
+  return `${proto}//${host}:${videoPort}`;
+}
+
 /** If set, only show pose stream for this group; empty = show all. */
 let selectedGroupFilter = '';
 
 let adminResponseHandler = null;
 
 scene = createPoseScene(canvasContainer, { onCameraClick: selectCamera, onKeypointClick: selectKeypoint });
-cameraViews = createCameraViews(cameraViewsContainer, { onViewClick: selectCamera, onKeypointClick: selectKeypoint });
+cameraViews = createCameraViews(cameraViewsContainer, {
+  onViewClick: selectCamera,
+  onKeypointClick: selectKeypoint,
+  videoBaseUrl: getVideoBaseUrl(),
+  groupName: selectedGroupFilter || null,
+});
 
 const client = createPoseStreamClient(wsUrl, {
   onPoseMessage(msg) {
@@ -146,6 +159,9 @@ function refreshGroups() {
       if (names.length > 0 && !names.includes(current)) {
         groupSelect.value = names[0];
         selectedGroupFilter = names[0];
+        if (cameraViews && cameraViews.setVideoOptions) {
+          cameraViews.setVideoOptions(getVideoBaseUrl(), selectedGroupFilter);
+        }
         refreshCameras();
       }
     })
@@ -188,10 +204,13 @@ function setOutput(id, text, isError = false) {
   }
 }
 
-// Group selector: filter pose stream by selected group; refresh camera list when group changes
+// Group selector: filter pose stream by selected group; refresh camera list and video stream URLs when group changes
 if (groupSelect) {
   groupSelect.addEventListener('change', () => {
     selectedGroupFilter = groupSelect.value;
+    if (cameraViews && cameraViews.setVideoOptions) {
+      cameraViews.setVideoOptions(getVideoBaseUrl(), selectedGroupFilter || null);
+    }
     refreshCameras();
   });
 }
@@ -247,17 +266,20 @@ if (btnListGroups) {
       .then((result) => {
         const names = result && result.group_names ? result.group_names : [];
         setOutput(OUT_CONTROL_ID, JSON.stringify(result, null, 2));
-        if (groupSelect) {
-          const current = groupSelect.value;
-          groupSelect.innerHTML = names.length === 0
-            ? '<option value="">—</option>'
-            : names.map((g) => `<option value="${escapeHtml(g)}"${g === current ? ' selected' : ''}>${escapeHtml(g)}</option>`).join('');
-          if (names.length > 0 && !names.includes(current)) {
-            groupSelect.value = names[0];
-            selectedGroupFilter = names[0];
-            refreshCameras();
+      if (groupSelect) {
+        const current = groupSelect.value;
+        groupSelect.innerHTML = names.length === 0
+          ? '<option value="">—</option>'
+          : names.map((g) => `<option value="${escapeHtml(g)}"${g === current ? ' selected' : ''}>${escapeHtml(g)}</option>`).join('');
+        if (names.length > 0 && !names.includes(current)) {
+          groupSelect.value = names[0];
+          selectedGroupFilter = names[0];
+          if (cameraViews && cameraViews.setVideoOptions) {
+            cameraViews.setVideoOptions(getVideoBaseUrl(), names[0]);
           }
+          refreshCameras();
         }
+      }
       })
       .catch((err) => {
         setOutput(OUT_CONTROL_ID, err.message || String(err), true);
@@ -290,7 +312,7 @@ bindAdmin('btn-get-camera-info', AdminMethods.GetCameraInfo, () => ({ group_name
 
 bindAdmin('btn-stream-start', AdminMethods.StreamControl, () => ({
   group_name: getSelectedGroup(),
-  command: { start: { with_pose: true, with_image: false, fps: 0 } },
+  command: { start: { with_pose: true, with_image: true, fps: 0 } },
 }), OUT_CONTROL_ID);
 bindAdmin('btn-stream-stop', AdminMethods.StreamControl, () => ({
   group_name: getSelectedGroup(),

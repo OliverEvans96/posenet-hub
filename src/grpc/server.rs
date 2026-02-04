@@ -75,6 +75,19 @@ impl HubServer {
             camera_info: RwLock::new(HashMap::new()),
         }
     }
+
+    /// Returns the latest cached snapshot for the given group and camera, if any.
+    /// Used by the HTTP MJPEG server to stream camera video.
+    pub fn get_latest_snapshot(
+        &self,
+        group_name: &str,
+        camera_name: &str,
+    ) -> Option<Snapshot> {
+        let cache = self.stream_cache.read();
+        cache
+            .get(group_name)
+            .and_then(|group_hm| group_hm.read().get(camera_name).cloned())
+    }
 }
 
 #[tonic::async_trait]

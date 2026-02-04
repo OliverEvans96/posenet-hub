@@ -33,17 +33,33 @@ const POSE_OFFSET_Y = 0;
 const HIGHLIGHT_CLASS = 'camera-view-panel-highlight';
 
 /**
+ * Build MJPEG stream URL for a camera. Returns empty string if base URL or group is missing.
+ * @param {string} [videoBaseUrl]
+ * @param {string} [groupName]
+ * @param {string} cameraName
+ * @returns {string}
+ */
+export function getCameraStreamUrl(videoBaseUrl, groupName, cameraName) {
+  if (!videoBaseUrl || !groupName || !cameraName) return '';
+  const base = videoBaseUrl.replace(/\/$/, '');
+  return `${base}/api/camera/${encodeURIComponent(groupName)}/${encodeURIComponent(cameraName)}/stream`;
+}
+
+/**
  * @param {HTMLDivElement} container
- * @param {{ onViewClick?: (cameraName: string) => void, onKeypointClick?: (keypointIndex: number | null) => void }} [options]
- * @returns {{ update: (camera_views: import('./poseMessage.js').CameraViewJson[]) => void, setHighlight: (cameraName: string | null) => void, setKeypointHighlight: (keypointIndex: number | null) => void, dispose: () => void }}
+ * @param {{ onViewClick?: (cameraName: string) => void, onKeypointClick?: (keypointIndex: number | null) => void, videoBaseUrl?: string | null, groupName?: string | null }} [options]
+ * @returns {{ update: (camera_views: import('./poseMessage.js').CameraViewJson[]) => void, setHighlight: (cameraName: string | null) => void, setKeypointHighlight: (keypointIndex: number | null) => void, setVideoOptions: (videoBaseUrl: string | null, groupName: string | null) => void, dispose: () => void }}
  */
 export function createCameraViews(container, options = {}) {
   const { onViewClick, onKeypointClick } = options;
+  let videoBaseUrl = options.videoBaseUrl ?? null;
+  let groupName = options.groupName ?? null;
+
   const grid = document.createElement('div');
   grid.className = 'camera-views-grid';
   container.appendChild(grid);
 
-  /** @type {Map<string, { panel: HTMLDivElement, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, lastKeypointPositions: { index: number, x: number, y: number }[] }>} */
+  /** @type {Map<string, { panel: HTMLDivElement, img: HTMLImageElement | null, canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, lastKeypointPositions: { index: number, x: number, y: number }[] }>} */
   const panels = new Map();
   /** @type {import('./poseMessage.js').CameraViewJson[]} */
   let lastCameraViews = [];
@@ -61,19 +77,41 @@ export function createCameraViews(container, options = {}) {
     title.className = 'camera-view-title';
     title.textContent = cameraName;
     panel.appendChild(title);
+    const viewWrapper = document.createElement('div');
+    viewWrapper.className = 'camera-view-wrapper';
+    viewWrapper.style.position = 'relative';
+    viewWrapper.style.width = `${CANVAS_WIDTH}px`;
+    viewWrapper.style.height = `${CANVAS_HEIGHT}px`;
+    const img = document.createElement('img');
+    img.className = 'camera-view-mjpeg';
+    img.alt = '';
+    img.style.position = 'absolute';
+    img.style.left = '0';
+    img.style.top = '0';
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.objectFit = 'contain';
+    img.style.display = 'none';
+    viewWrapper.appendChild(img);
     const canvas = document.createElement('canvas');
     canvas.className = 'camera-view-canvas';
+    canvas.style.position = 'absolute';
+    canvas.style.left = '0';
+    canvas.style.top = '0';
     canvas.style.width = `${CANVAS_WIDTH}px`;
     canvas.style.height = `${CANVAS_HEIGHT}px`;
-    panel.appendChild(canvas);
+    canvas.style.pointerEvents = 'auto';
+    viewWrapper.appendChild(canvas);
+    panel.appendChild(viewWrapper);
     grid.appendChild(panel);
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       panel.remove();
       return null;
     }
-    const entry = { panel, canvas, ctx, lastKeypointPositions: [] };
+    const entry = { panel, img, canvas, ctx, lastKeypointPositions: [] };
     panels.set(cameraName, entry);
+    updatePanelVideoSrc(entry, cameraName);
     if (onViewClick) {
       const handlePanelClick = () => onViewClick(cameraName);
       panel.addEventListener('click', handlePanelClick);
@@ -100,6 +138,25 @@ export function createCameraViews(container, options = {}) {
   function setHighlight(cameraName) {
     panels.forEach((entry, name) => {
       entry.panel.classList.toggle(HIGHLIGHT_CLASS, name === cameraName);
+    });
+  }
+
+  function updatePanelVideoSrc(entry, cameraName) {
+    const url = getCameraStreamUrl(videoBaseUrl, groupName, cameraName);
+    if (url && entry.img) {
+      entry.img.src = url;
+      entry.img.style.display = '';
+    } else if (entry.img) {
+      entry.img.src = '';
+      entry.img.style.display = 'none';
+    }
+  }
+
+  function setVideoOptions(baseUrl, group) {
+    videoBaseUrl = baseUrl ?? null;
+    groupName = group ?? null;
+    panels.forEach((entry, cameraName) => {
+      updatePanelVideoSrc(entry, cameraName);
     });
   }
 
@@ -145,7 +202,7 @@ export function createCameraViews(container, options = {}) {
   }
 
   function drawView(entry, view, highlightIndex) {
-    const { canvas, ctx } = entry;
+    const { canvas, ctx, img } = entry;
     const w = CANVAS_WIDTH;
     const h = CANVAS_HEIGHT;
     const dpr = window.devicePixelRatio || 1;
@@ -161,8 +218,11 @@ export function createCameraViews(container, options = {}) {
     ctx.rect(0, 0, w, h);
     ctx.clip();
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#0d1117';
-    ctx.fillRect(0, 0, w, h);
+    const hasVideo = img && img.style.display !== 'none' && img.src;
+    if (!hasVideo) {
+      ctx.fillStyle = '#0d1117';
+      ctx.fillRect(0, 0, w, h);
+    }
     const pose = view.poses[0];
     if (pose && pose.keypoints.length) {
       const keypoints = pose.keypoints;
@@ -216,5 +276,5 @@ export function createCameraViews(container, options = {}) {
     panels.clear();
   }
 
-  return { update, setHighlight, setKeypointHighlight, dispose };
+  return { update, setHighlight, setKeypointHighlight, setVideoOptions, dispose };
 }

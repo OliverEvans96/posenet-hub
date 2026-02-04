@@ -2,7 +2,43 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createCameraViews } from './cameraViews.js';
+import { createCameraViews, getCameraStreamUrl } from './cameraViews.js';
+
+describe('getCameraStreamUrl', () => {
+  it('returns empty string when videoBaseUrl is missing', () => {
+    expect(getCameraStreamUrl('', 'default', 'cam1')).toBe('');
+    expect(getCameraStreamUrl(null, 'default', 'cam1')).toBe('');
+    expect(getCameraStreamUrl(undefined, 'default', 'cam1')).toBe('');
+  });
+
+  it('returns empty string when groupName is missing', () => {
+    expect(getCameraStreamUrl('http://localhost:9002', '', 'cam1')).toBe('');
+  });
+
+  it('returns empty string when cameraName is missing', () => {
+    expect(getCameraStreamUrl('http://localhost:9002', 'default', '')).toBe('');
+  });
+
+  it('builds URL with encoded path segments', () => {
+    expect(getCameraStreamUrl('http://localhost:9002', 'default', 'cam1')).toBe(
+      'http://localhost:9002/api/camera/default/cam1/stream'
+    );
+  });
+
+  it('strips trailing slash from videoBaseUrl', () => {
+    expect(getCameraStreamUrl('http://localhost:9002/', 'grp', 'my-cam')).toBe(
+      'http://localhost:9002/api/camera/grp/my-cam/stream'
+    );
+  });
+
+  it('encodes special characters in group and camera name', () => {
+    const url = getCameraStreamUrl('http://host', 'my group', 'cam/1');
+    expect(url).toContain('api/camera/');
+    expect(url).toContain('/stream');
+    expect(url).toContain(encodeURIComponent('my group'));
+    expect(url).toContain(encodeURIComponent('cam/1'));
+  });
+});
 
 describe('createCameraViews', () => {
   /** @type {HTMLDivElement} */
@@ -17,11 +53,13 @@ describe('createCameraViews', () => {
     if (container.parentNode) container.remove();
   });
 
-  it('returns update and dispose', () => {
+  it('returns update, setVideoOptions, and dispose', () => {
     const views = createCameraViews(container);
     expect(views).toHaveProperty('update');
+    expect(views).toHaveProperty('setVideoOptions');
     expect(views).toHaveProperty('dispose');
     expect(typeof views.update).toBe('function');
+    expect(typeof views.setVideoOptions).toBe('function');
     expect(typeof views.dispose).toBe('function');
     views.dispose();
   });
