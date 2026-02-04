@@ -450,20 +450,17 @@ mod tests {
 
     #[test]
     fn test_triangulate_from_poses_and_camera_matrices_roundtrip() {
-        let mut rng = rand::thread_rng();
-        let c1 = Point3::new(rng.gen(), rng.gen(), rng.gen());
-        let r1 = Rotation3::from_euler_angles(rng.gen(), rng.gen(), rng.gen());
-        let c2 = Point3::new(rng.gen(), rng.gen(), rng.gen());
-        let r2 = Rotation3::from_euler_angles(rng.gen(), rng.gen(), rng.gen());
+        // Use fixed, well-conditioned geometry: two cameras with good baseline and a point in front of both.
+        // Random camera setups often produce degenerate geometry (small baseline, point behind camera).
+        let c1 = Point3::new(0.0, 0.0, 0.0);
+        let r1 = Rotation3::identity();
+        let c2 = Point3::new(2.0, 0.0, 0.0);
+        let r2 = Rotation3::identity();
         let p1 = create_camera_matrix(c1, r1);
         let p2 = create_camera_matrix(c2, r2);
-        let cameras = vec![p1, p2];
+        let cameras = vec![p1.clone(), p2.clone()];
 
-        let x3d = Point3::new(
-            rng.gen_range(0.1..10.0),
-            rng.gen_range(0.1..10.0),
-            rng.gen_range(0.1..10.0),
-        );
+        let x3d = Point3::new(1.0, 0.0, 5.0);
         let pose2d_1 = get_projection(x3d, p1).unwrap();
         let pose2d_2 = get_projection(x3d, p2).unwrap();
 
@@ -477,28 +474,48 @@ mod tests {
             y: pose2d_2.y,
             score: 1.0,
         };
-        let pt = point2d_1.clone();
+        let pt1 = point2d_1.clone();
         let pose_2d_1 = crate::grpc::proto::Pose2D {
             nose: Some(point2d_1),
-            left_eye: Some(pt.clone()),
-            right_eye: Some(pt.clone()),
-            left_ear: Some(pt.clone()),
-            right_ear: Some(pt.clone()),
-            left_shoulder: Some(pt.clone()),
-            right_shoulder: Some(pt.clone()),
-            left_elbow: Some(pt.clone()),
-            right_elbow: Some(pt.clone()),
-            left_wrist: Some(pt.clone()),
-            right_wrist: Some(pt.clone()),
-            left_hip: Some(pt.clone()),
-            right_hip: Some(pt.clone()),
-            left_knee: Some(pt.clone()),
-            right_knee: Some(pt.clone()),
-            left_ankle: Some(pt.clone()),
-            right_ankle: Some(pt),
+            left_eye: Some(pt1.clone()),
+            right_eye: Some(pt1.clone()),
+            left_ear: Some(pt1.clone()),
+            right_ear: Some(pt1.clone()),
+            left_shoulder: Some(pt1.clone()),
+            right_shoulder: Some(pt1.clone()),
+            left_elbow: Some(pt1.clone()),
+            right_elbow: Some(pt1.clone()),
+            left_wrist: Some(pt1.clone()),
+            right_wrist: Some(pt1.clone()),
+            left_hip: Some(pt1.clone()),
+            right_hip: Some(pt1.clone()),
+            left_knee: Some(pt1.clone()),
+            right_knee: Some(pt1.clone()),
+            left_ankle: Some(pt1.clone()),
+            right_ankle: Some(pt1),
             score: 1.0,
         };
-        let pose_2d_2 = pose_2d_1.clone();
+        let pt2 = point2d_2.clone();
+        let pose_2d_2 = crate::grpc::proto::Pose2D {
+            nose: Some(point2d_2),
+            left_eye: Some(pt2.clone()),
+            right_eye: Some(pt2.clone()),
+            left_ear: Some(pt2.clone()),
+            right_ear: Some(pt2.clone()),
+            left_shoulder: Some(pt2.clone()),
+            right_shoulder: Some(pt2.clone()),
+            left_elbow: Some(pt2.clone()),
+            right_elbow: Some(pt2.clone()),
+            left_wrist: Some(pt2.clone()),
+            right_wrist: Some(pt2.clone()),
+            left_hip: Some(pt2.clone()),
+            right_hip: Some(pt2.clone()),
+            left_knee: Some(pt2.clone()),
+            right_knee: Some(pt2.clone()),
+            left_ankle: Some(pt2.clone()),
+            right_ankle: Some(pt2),
+            score: 1.0,
+        };
         let poses = vec![pose_2d_1, pose_2d_2];
 
         let pose3d = triangulate_from_poses_and_camera_matrices(poses, &cameras).unwrap();
