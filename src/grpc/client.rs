@@ -1,7 +1,6 @@
 use rand::distributions::Alphanumeric;
 use rand::prelude::ThreadRng;
 use rand::{thread_rng, Rng};
-use std::error::Error;
 use std::time::SystemTime;
 use tokio::sync::mpsc::{channel, Sender};
 use tokio::time::{sleep, Duration};
@@ -43,7 +42,7 @@ fn fake_calibration() -> CalibrationParameters {
 pub async fn hello(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
-) -> Result<String, Box<dyn Error>> {
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let name = generate_name();
 
     let which_camera = CameraIdentifier {
@@ -82,7 +81,7 @@ pub async fn stream_inner(
     camera_name: String,
     tx: Sender<Snapshot>,
     rng: &mut ThreadRng,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let nposes: u32 = 1000;
 
     let which_camera = CameraIdentifier {
@@ -112,7 +111,7 @@ pub async fn stream_poses(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
     camera_name: String,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let buf_size = 10;
     let (tx, rx) = channel::<Snapshot>(buf_size);
     let request = Request::new(rx);
@@ -134,7 +133,7 @@ async fn handle_camera_snapshot_request(
     group_name: String,
     camera_name: String,
     image_data: Option<Image>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     log::info!("Handling snapshot request '{:?}'", &request.token);
 
     let mut rng = thread_rng();
@@ -164,7 +163,7 @@ pub async fn offer_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
     image_data: Option<Image>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // TODO: More logging
     let camera_name = generate_name();
 
@@ -208,7 +207,7 @@ pub async fn offer_snapshots(
 pub async fn get_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
-) -> Result<ServerSnapshotResponse, Box<dyn Error>> {
+) -> Result<ServerSnapshotResponse, Box<dyn std::error::Error + Send + Sync>> {
     // TODO: camera name?
     let camera_name = String::new();
     let which_camera = CameraIdentifier {
@@ -222,7 +221,7 @@ pub async fn get_snapshots(
 pub async fn get_snapshot_cameras(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
-) -> Result<ServerSnapshotResponse, Box<dyn Error>> {
+) -> Result<ServerSnapshotResponse, Box<dyn std::error::Error + Send + Sync>> {
     // TODO: camera name?
     let camera_name = String::new();
     let which_camera = CameraIdentifier {

@@ -138,9 +138,13 @@ async fn stream_poses(
     group_name: String,
 ) -> anyhow::Result<()> {
     log::info!("Sending hello");
-    let name = grpc_client::hello(client, group_name.clone()).await?;
+    let name = grpc_client::hello(client, group_name.clone())
+        .await
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
     log::info!("Streaming poses");
-    grpc_client::stream_poses(client, group_name, name).await?;
+    grpc_client::stream_poses(client, group_name, name)
+        .await
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
 
     Ok(())
 }
@@ -158,7 +162,9 @@ async fn offer_snapshots(
         None
     };
 
-    grpc_client::offer_snapshots(client, group_name, image_data).await?;
+    grpc_client::offer_snapshots(client, group_name, image_data)
+        .await
+        .map_err(|e| anyhow::Error::msg(e.to_string()))?;
     Ok(())
 }
 

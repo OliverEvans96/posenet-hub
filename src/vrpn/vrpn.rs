@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use cxx::UniquePtr;
 
 use crate::errors::MissingField;

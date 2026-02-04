@@ -1,5 +1,6 @@
 use nalgebra::{Matrix3, Matrix3x4, Point2};
 use parking_lot::RwLock;
+use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use std::{collections::HashMap, time::Duration};
@@ -47,7 +48,7 @@ impl Default for TriangulatorConfig {
 fn collect_points_by_keypoint(poses: Vec<Pose2D>) -> Result<Vec<Vec<SPoint2>>, HubError> {
     let points_grouped_by_camera: Vec<Vec<SPoint2>> = poses
         .into_iter()
-        .map(|pose| {
+        .map(|pose| -> Result<Vec<SPoint2>, MissingField> {
             let (points, _score) = pose.try_into()?;
             Ok(points)
         })
@@ -325,7 +326,7 @@ impl Triangulator {
                 let camera_name = snapshot
                     .which_camera
                     .as_ref()
-                    .and_then(|w| w.camera_name.as_ref())
+                    .map(|w| w.camera_name.as_str())
                     .ok_or(MissingField::CameraName)?;
                 self.get_camera_matrix(camera_name)
                     .ok_or(CalculationError::CameraMatrixFailed(MissingField::CameraName).into())

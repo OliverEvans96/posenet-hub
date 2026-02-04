@@ -122,7 +122,7 @@ impl HubService for HubServer {
                 // Activate lock to gain thread-safe, mutable access to shared data
                 // (this rpc could be called multiple times simultaneously)
                 // TODO: Don't need to lock whole snapshots_hm, just the inner HM for this snapshot group
-                let channels_hm = self.snapshot_channels.read().await;
+                let channels_hm = self.snapshot_channels.read();
 
                 // Get HashMap existing for group if it exists, otherwise create a new one
                 if let Some(sender) = channels_hm.get(&snapshot_id) {
@@ -165,7 +165,7 @@ impl HubService for HubServer {
 
         // Introduce new scope here to drop RwLock on snapshot_offers ASAP
         let (camera_names, send_results, rx) = {
-            let all_offers = self.snapshot_offers.read().await;
+            let all_offers = self.snapshot_offers.read();
 
             // Look up all outstanding offers for the requested group
             let group_offers = all_offers
@@ -284,7 +284,7 @@ impl HubService for HubServer {
         request: Request<ServerSnapshotRequest>,
     ) -> Result<Response<SnapshotCamerasResponse>, Status> {
         let ServerSnapshotRequest { group_name } = request.into_inner();
-        let all_offers = self.snapshot_offers.read().await;
+        let all_offers = self.snapshot_offers.read();
         let group_offers = all_offers
             .get(&group_name)
             .ok_or(Status::unavailable(format!(
@@ -335,7 +335,7 @@ impl HubService for HubServer {
         {
             // TODO: Move to self.get_data_channel(&token) function
             let tx = {
-                let hm = self.data_channels.read().await;
+                let hm = self.data_channels.read();
                 if let Some(_tx) = hm.get(&token) {
                     _tx.clone()
                 } else {
@@ -431,7 +431,10 @@ impl HubService for HubServer {
                 command: Some(calibrate_command),
             } => {
                 let control_command = camera_control_command::Command::Calibrate(calibrate_command);
-                let execution_futures = self.execute_command(which_camera, control_command).await;
+                let execution_futures = self
+                    .execute_command(which_camera, control_command)
+                    .await
+                    .map_err(|e| Status::internal(e.to_string()))?;
                 let execution_results = join_all(execution_futures).await;
 
                 let mut calibration_states = Vec::new();
@@ -622,7 +625,9 @@ impl HubService for HubServer {
         // Collect initial guess
         let mut original_scores = Vec::with_capacity(npoints_total);
         for (k, initial_pose) in message.initial_poses.into_iter().enumerate() {
-            let (spoints, _): (Vec<SPoint3>, f64) = initial_pose.into();
+            let (spoints, _): (Vec<SPoint3>, f64) = initial_pose
+                .try_into()
+                .map_err(|e: MissingField| Status::invalid_argument(e.to_string()))?;
             for (h, (point, score)) in spoints.iter().enumerate() {
                 let j = nkeypoints * k + h;
                 let col = Vector3::new(point.x, point.y, point.z);
@@ -849,9 +854,9 @@ impl HubServer {
                 // Match all cameras
                 let mut sessions = Vec::new();
 
-                let tokens_hm = self.session_tokens.read().await;
+                let tokens_hm = self.session_tokens.read();
                 for (group_name, group_hm_lock) in tokens_hm.iter() {
-                    let group_hm = group_hm_lock.read().await;
+                    let group_hm = group_hm_lock.read();
                     for (camera_name, token) in group_hm.iter() {
                         let camera = CameraUniqueIdentifier {
                             group_name: group_name.clone(),
@@ -872,9 +877,9 @@ impl HubServer {
                 camera_name,
             } if camera_name == "" => {
                 // Match one group
-                let tokens_hm = self.session_tokens.read().await;
+                let tokens_hm = self.session_tokens.read();
                 if let Some(group_hm_lock) = tokens_hm.get(&group_name) {
-                    let group_hm = group_hm_lock.read().await;
+                    let group_hm = group_hm_lock.read();
                     let mut sessions = Vec::new();
                     for (camera_name, token) in group_hm.iter() {
                         let camera = CameraUniqueIdentifier {
@@ -900,9 +905,9 @@ impl HubServer {
                 camera_name,
             } => {
                 // Match one camera
-                let tokens_hm = self.session_tokens.read().await;
+                let tokens_hm = self.session_tokens.read();
                 if let Some(group_hm_lock) = tokens_hm.get(&group_name) {
-                    let group_hm = group_hm_lock.read().await;
+                    let group_hm = group_hm_lock.read();
                     if let Some(token) = group_hm.get(&camera_name) {
                         let camera = CameraUniqueIdentifier {
                             group_name,
@@ -930,7 +935,7 @@ impl HubServer {
         &self,
         tokens: &[SessionToken],
     ) -> Vec<mpsc::Sender<CameraControlCommand>> {
-        let channels_hm = self.control_channels.read().await;
+        let channels_hm = self.control_channels.read();
         tokens
             .iter()
             .filter_map(|token| {
@@ -969,13 +974,16 @@ impl HubServer {
         &self,
         which_camera: CameraIdentifier,
         command: camera_control_command::Command,
-    ) -> Vec<
-        impl Future<
-            Output = (
-                CameraUniqueIdentifier,
-                impl Stream<Item = CommandResponse> + Send,
-            ),
+    ) -> Result<
+        Vec<
+            impl Future<
+                Output = (
+                    CameraUniqueIdentifier,
+                    impl Stream<Item = CommandResponse> + Send,
+                ),
+            >,
         >,
+        HubError,
     > {
         // Look up & unpack active camera sessions
         // TODO: filter_map & or_else(log error) in get_sessions

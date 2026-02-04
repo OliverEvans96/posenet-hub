@@ -154,14 +154,14 @@ pub fn triangulate(
 pub fn triangulate_many<T>(
     points2d_slice: &[T],
     camera_poses: &[Matrix3x4<f64>],
-) -> Vec<Point3<f64>>
+) -> Result<Vec<Point3<f64>>, OpenMvgError>
 where
     T: AsRef<[Point2<f64>]>,
 {
     points2d_slice
         .iter()
         .map(|p2d| triangulate(p2d.as_ref(), camera_poses))
-        .collect()
+        .collect::<Result<Vec<_>, _>>()
 }
 
 pub fn create_camera_matrix(center: Point3<f64>, rotation: Rotation3<f64>) -> Matrix3x4<f64> {
