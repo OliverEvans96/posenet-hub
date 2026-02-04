@@ -168,6 +168,8 @@
           OMVG = "${myOpenMVG}";
           EIGEN_INCLUDE_DIR = "${myEigen}/include/eigen3";
           LIBRARY_PATH = "${myOpenMVG}/lib";
+          # So "cargo test" can load libstdc++.so.6 (C++ FFI / openMVG)
+          LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib:${myOpenMVG}/lib";
         };
       });
 }

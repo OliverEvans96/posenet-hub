@@ -1,0 +1,31 @@
+# Example config for run_synthetic_cameras.
+# Subject is roughly at origin; pose CSV is in world coordinates.
+# Cameras at various elevations, all looking at the subject (origin).
+
+hub_url: "http://127.0.0.1:50051"
+group_name: "synthetic"
+pose_csv_path: "fake_poses/running_pose.csv"
+
+# Optional: run for 60 seconds then exit. Omit to run until interrupted.
+# duration_secs: 60
+
+fps: 30
+rotation_speed_rad_per_sec: 0.1
+
+cameras:
+  # Front-left, elevated
+  - position: [2.5, 1.5, 3.0]
+    look_at: [0.0, 0.0, 0.0]
+    name: "cam_front_left"
+  # Front-right, elevated
+  - position: [-2.5, 1.5, 3.0]
+    look_at: [0.0, 0.0, 0.0]
+    name: "cam_front_right"
+  # Back-left, lower
+  - position: [2.0, 0.8, -2.5]
+    look_at: [0.0, 0.0, 0.0]
+    name: "cam_back_left"
+  # Back-right, mid height
+  - position: [-2.0, 1.2, -2.5]
+    look_at: [0.0, 0.0, 0.0]
+    name: "cam_back_right"

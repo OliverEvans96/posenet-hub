@@ -31,6 +31,8 @@ serde_yaml = "0.8"
 clap = { version = "3.1.16", features=["derive"] }
 thiserror = "1.0"
 parking_lot = "0.12"
+csv = "1.1"
+async-stream = "0.3"
 
 [build-dependencies]
 tonic-build = "0.5"
@@ -40,3 +42,4 @@ dotenv = "0.15"
 [dev-dependencies]
 rstest = "0.11"
 more-asserts = "0.2"
+tempfile = "3.3"

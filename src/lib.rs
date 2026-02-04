@@ -7,6 +7,7 @@ pub mod controller;
 pub mod errors;
 pub mod grpc;
 pub mod openmvg;
+pub mod synthetic_cameras;
 pub mod triangulator;
 mod utils;
 pub mod vrpn;

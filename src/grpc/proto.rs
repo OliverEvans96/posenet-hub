@@ -135,7 +135,8 @@ impl From<(Vec<SPoint3>, f64)> for Pose3D {
 }
 
 // Pose keypoint names for error messages
-const POSE_KEYPOINTS: [&str; 17] = [
+/// Keypoint names in the same order as Pose2D/Pose3D fields.
+pub const POSE_KEYPOINTS: [&str; 17] = [
     "nose", "left_eye", "right_eye", "left_ear", "right_ear",
     "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
     "left_wrist", "right_wrist", "left_hip", "right_hip",
