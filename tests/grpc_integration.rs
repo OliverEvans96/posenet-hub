@@ -301,6 +301,24 @@ async fn grpc_calibrate_returns_response() {
     .expect("test timeout");
 }
 
+#[tokio::test]
+async fn grpc_update_cameras_returns_count() {
+    timeout(TEST_TIMEOUT, async {
+        let port = start_test_server().await;
+        let mut client = connect_client(port).await;
+        let req = grpc_client::build_update_cameras_request(CameraIdentifier {
+            group_name: "update_group".to_string(),
+            camera_name: String::new(),
+        });
+        let resp = grpc_client::update_cameras(&mut client, req)
+            .await
+            .expect("update_cameras");
+        assert!(resp.cameras_updated >= 0);
+    })
+    .await
+    .expect("test timeout");
+}
+
 // ---- CameraControl stream: camera receives commands ----
 
 #[tokio::test]

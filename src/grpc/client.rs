@@ -182,6 +182,13 @@ pub fn build_ping_request(
     }
 }
 
+/// Build UpdateCamerasRequest. which_camera: group only = all in group; group + camera = one camera; empty = all.
+pub fn build_update_cameras_request(which_camera: CameraIdentifier) -> UpdateCamerasRequest {
+    UpdateCamerasRequest {
+        which_camera: Some(which_camera),
+    }
+}
+
 // --- Admin RPC wrappers ---
 
 pub async fn list_groups(
@@ -266,6 +273,15 @@ pub async fn ping(
 ) -> Result<PingResponse, Box<dyn std::error::Error + Send + Sync>> {
     let req = Request::new(request);
     let resp = client.ping(req).await?.into_inner();
+    Ok(resp)
+}
+
+pub async fn update_cameras(
+    client: &mut HubServiceClient<Channel>,
+    request: UpdateCamerasRequest,
+) -> Result<UpdateCamerasResponse, Box<dyn std::error::Error + Send + Sync>> {
+    let req = Request::new(request);
+    let resp = client.update_cameras(req).await?.into_inner();
     Ok(resp)
 }
 
@@ -416,7 +432,8 @@ mod tests {
     use super::{
         build_calibration_request, build_camera_identifier, build_ping_request,
         build_server_snapshot_request, build_stream_control_start_request,
-        build_stream_control_stop_request, generate_name, stream_control_request, CameraIdentifier,
+        build_stream_control_stop_request, build_update_cameras_request, generate_name,
+        stream_control_request, CameraIdentifier,
     };
 
     // Test names are prefixed with "test_" to avoid shadowing the builder functions under test.
@@ -566,5 +583,15 @@ mod tests {
         assert!(req.which_camera.is_some());
         assert_eq!(req.which_camera.as_ref().unwrap().group_name, "g");
         assert!(req.timeout.is_none());
+    }
+
+    #[test]
+    fn test_build_update_cameras_request() {
+        let id = build_camera_identifier("my_group".to_string(), "cam1".to_string());
+        let req = build_update_cameras_request(id);
+        assert!(req.which_camera.is_some());
+        let w = req.which_camera.as_ref().unwrap();
+        assert_eq!(w.group_name, "my_group");
+        assert_eq!(w.camera_name, "cam1");
     }
 }

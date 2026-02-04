@@ -18,7 +18,7 @@ use crate::grpc::proto::{
     CameraInfo, CalibrationResponse, ListCamerasRequest, ListGroupsRequest, PingRequest,
     PingResponse, Point2D, Point3D, Pose2D, Pose3D, ServerSnapshotRequest, ServerSnapshotResponse,
     SnapshotParameters, SnapshotPayloadParameters, StartStreamingRequest, StreamControlRequest,
-    StreamParameters, StreamStatus, StopStreamingRequest,
+    StreamParameters, StreamStatus, StopStreamingRequest, UpdateCamerasRequest,
 };
 use crate::grpc::proto::hub_service_server::HubService;
 use crate::grpc::server::HubServer;
@@ -416,6 +416,24 @@ async fn handle_ws_admin(hub: &HubServer, req: WsAdminRequest) -> String {
                 .ping(Request::new(ping_req))
                 .await
                 .map(|r| ping_response_to_json(r.into_inner()));
+            r
+        }
+        "UpdateCameras" => {
+            let (group_name, camera_name) = parse_camera_identifier(&req.params);
+            let which = CameraIdentifier {
+                group_name,
+                camera_name,
+            };
+            let update_req = UpdateCamerasRequest {
+                which_camera: Some(which),
+            };
+            let r = hub
+                .update_cameras(Request::new(update_req))
+                .await
+                .map(|r| {
+                    let inner = r.into_inner();
+                    serde_json::json!({ "cameras_updated": inner.cameras_updated })
+                });
             r
         }
         _ => Err(tonic::Status::invalid_argument(format!("Unknown method: {}", req.method))),

@@ -784,6 +784,33 @@ impl HubService for HubServer {
         }
     }
 
+    async fn update_cameras(
+        &self,
+        request: Request<UpdateCamerasRequest>,
+    ) -> Result<Response<UpdateCamerasResponse>, Status> {
+        let which_camera = request
+            .into_inner()
+            .which_camera
+            .ok_or_else(|| Status::invalid_argument("UpdateCameras requires which_camera"))?;
+
+        let sessions = self.get_sessions(which_camera).await;
+        let session_tokens: Vec<_> = sessions.iter().map(|s| s.token.clone()).collect();
+        let control_channels = self.get_control_channels(&session_tokens).await;
+        let cameras_updated = control_channels.len() as i32;
+
+        let command_tokens: Vec<_> = control_channels
+            .iter()
+            .map(|_| CommandToken::new())
+            .collect();
+
+        let command = camera_control_command::Command::Update(UpdateCommand {});
+        send_control_command(command, control_channels, command_tokens)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(UpdateCamerasResponse { cameras_updated }))
+    }
+
     // A la carte
 
     async fn triangulate(
@@ -1103,6 +1130,13 @@ impl HubService for Arc<HubServer> {
 
     async fn ping(&self, request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
         self.as_ref().ping(request).await
+    }
+
+    async fn update_cameras(
+        &self,
+        request: Request<UpdateCamerasRequest>,
+    ) -> Result<Response<UpdateCamerasResponse>, Status> {
+        self.as_ref().update_cameras(request).await
     }
 
     async fn triangulate(
@@ -1803,6 +1837,24 @@ mod tests {
             .await
             .expect("ping");
             assert!(resp.results.is_empty());
+        })
+        .await
+        .expect("test timeout");
+    }
+
+    #[tokio::test]
+    async fn test_update_cameras() {
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            let req = grpc_client::build_update_cameras_request(CameraIdentifier {
+                group_name: "unit_update_group".to_string(),
+                camera_name: String::new(),
+            });
+            let resp = grpc_client::update_cameras(&mut client, req)
+                .await
+                .expect("update_cameras");
+            assert!(resp.cameras_updated >= 0);
         })
         .await
         .expect("test timeout");

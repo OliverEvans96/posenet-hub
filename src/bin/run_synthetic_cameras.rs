@@ -58,20 +58,28 @@ async fn run_camera_control_listener(
     let mut stream = client.camera_control(request).await?.into_inner();
     while let Some(msg) = stream.next().await {
         let cmd = msg?;
-        if let (Some(token), Some(camera_control_command::Command::StartStreaming(_))) =
-            (&cmd.token, &cmd.command)
-        {
-            let command_token = token.clone();
-            let mut data_sink_client = client.clone();
-            let which_cam = which_camera.clone();
-            let rx = std::mem::replace(&mut snapshot_rx, mpsc::unbounded_channel().1);
-            tokio::spawn(async move {
-                if let Err(e) =
-                    run_camera_data_sink(&mut data_sink_client, command_token, which_cam, rx).await
-                {
-                    log::error!("CameraDataSink error: {}", e);
-                }
-            });
+        match (&cmd.token, &cmd.command) {
+            (Some(token), Some(camera_control_command::Command::StartStreaming(_))) => {
+                let command_token = token.clone();
+                let mut data_sink_client = client.clone();
+                let which_cam = which_camera.clone();
+                let rx = std::mem::replace(&mut snapshot_rx, mpsc::unbounded_channel().1);
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        run_camera_data_sink(&mut data_sink_client, command_token, which_cam, rx)
+                            .await
+                    {
+                        log::error!("CameraDataSink error: {}", e);
+                    }
+                });
+            }
+            (_, Some(camera_control_command::Command::Update(_))) => {
+                log::info!(
+                    "Update command received for {} (synthetic camera does not pull code)",
+                    camera_name
+                );
+            }
+            _ => {}
         }
     }
     Ok(())

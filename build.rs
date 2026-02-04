@@ -6,7 +6,9 @@ type UnitResult = Result<(), Box<dyn error::Error>>;
 fn build_grpc() -> UnitResult {
     // gRPC
     println!("cargo:rerun-if-changed=proto/common.proto");
+    println!("cargo:rerun-if-changed=proto/camera.proto");
     println!("cargo:rerun-if-changed=proto/client.proto");
+    println!("cargo:rerun-if-changed=proto/hub.proto");
     println!("cargo:rerun-if-changed=proto/server.proto");
 
     dotenv().ok();
