@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   parsePoseStreamMessage,
   normalizePose,
+  normalizePose2D,
+  normalizeCameraView,
   KEYPOINT_NAMES,
 } from './poseMessage.js';
 
@@ -105,6 +107,51 @@ describe('normalizePose', () => {
     });
     expect(p.keypoints[0]).toEqual({ x: 1, y: 2, z: 3, score: 1 });
     expect(p.keypoints[1]).toBeNull();
+  });
+});
+
+describe('normalizePose2D', () => {
+  it('returns empty 2D pose for null or non-object', () => {
+    const empty = { keypoints: Array(17).fill(null), score: 0 };
+    expect(normalizePose2D(null)).toEqual(empty);
+    expect(normalizePose2D(undefined)).toEqual(empty);
+  });
+
+  it('normalizes 2D keypoints (x, y, score)', () => {
+    const p = normalizePose2D({
+      keypoints: [{ x: 100, y: 200, score: 0.8 }],
+      score: 0.8,
+    });
+    expect(p.keypoints).toHaveLength(17);
+    expect(p.keypoints[0]).toEqual({ x: 100, y: 200, score: 0.8 });
+    expect(p.keypoints[1]).toBeNull();
+    expect(p.score).toBe(0.8);
+  });
+
+  it('filters invalid 2D keypoints to null', () => {
+    const p = normalizePose2D({
+      keypoints: [{ x: 1, y: 2 }, { x: 0 }],
+      score: 0,
+    });
+    expect(p.keypoints[0]).toEqual({ x: 1, y: 2, score: 0 });
+    expect(p.keypoints[1]).toBeNull();
+  });
+});
+
+describe('normalizeCameraView', () => {
+  it('returns empty view for null or non-object', () => {
+    expect(normalizeCameraView(null)).toEqual({ camera_name: '', poses: [] });
+    expect(normalizeCameraView(undefined)).toEqual({ camera_name: '', poses: [] });
+  });
+
+  it('normalizes camera_name and poses', () => {
+    const v = normalizeCameraView({
+      camera_name: 'front_cam',
+      poses: [{ keypoints: [{ x: 0, y: 0, score: 1 }], score: 1 }],
+    });
+    expect(v.camera_name).toBe('front_cam');
+    expect(v.poses).toHaveLength(1);
+    expect(v.poses[0].keypoints[0]).toEqual({ x: 0, y: 0, score: 1 });
   });
 });
 

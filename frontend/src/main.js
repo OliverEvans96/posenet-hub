@@ -1,18 +1,19 @@
 /**
- * Entry: connect to hub WebSocket, visualize poses, show info.
+ * Entry: connect to hub WebSocket, visualize poses, show info, camera views.
  */
 
 import { createPoseStreamClient } from './websocketClient.js';
 import { createPoseScene } from './scene.js';
+import { createCameraViews } from './cameraViews.js';
 
 const wsUrl = getWsUrl();
-const infoBar = document.getElementById('info-bar');
 const connectionStatus = document.getElementById('connection-status');
 const groupNameEl = document.getElementById('group-name');
 const poseCountEl = document.getElementById('pose-count');
 const timestampEl = document.getElementById('timestamp');
 const messageRateEl = document.getElementById('message-rate');
 const canvasContainer = document.getElementById('canvas-container');
+const cameraViewsContainer = document.getElementById('camera-views-container');
 
 let lastMessageTime = 0;
 const rateWindow = [];
@@ -30,10 +31,23 @@ const client = createPoseStreamClient(wsUrl, (msg) => {
   rateWindow.push(lastMessageTime);
   while (rateWindow.length > 0 && lastMessageTime - rateWindow[0] > RATE_WINDOW_MS) rateWindow.shift();
   scene.update(msg);
+  cameraViews.update(msg.camera_views ?? []);
   updateInfo(msg);
 });
 
 const scene = createPoseScene(canvasContainer);
+const cameraViews = createCameraViews(cameraViewsContainer);
+
+const cameraViewsPane = document.getElementById('camera-views-pane');
+const cameraViewsToggle = document.getElementById('camera-views-toggle');
+if (cameraViewsPane && cameraViewsToggle) {
+  cameraViewsToggle.addEventListener('click', () => {
+    const collapsed = cameraViewsPane.classList.toggle('collapsed');
+    cameraViewsToggle.setAttribute('aria-expanded', String(!collapsed));
+    cameraViewsToggle.textContent = collapsed ? '+' : '−';
+    cameraViewsToggle.title = collapsed ? 'Show camera views' : 'Hide camera views';
+  });
+}
 
 function updateInfo(msg) {
   groupNameEl.textContent = msg.group_name || '—';

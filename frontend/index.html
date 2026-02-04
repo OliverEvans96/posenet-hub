@@ -18,8 +18,17 @@
           <span id="message-rate">0 msg/s</span>
         </div>
       </header>
-      <main>
+      <main class="main-content">
         <div id="canvas-container"></div>
+        <aside id="camera-views-pane" class="right-pane" aria-label="Camera views">
+          <div class="right-pane-header">
+            <h2 class="camera-views-heading">Camera views</h2>
+            <button type="button" id="camera-views-toggle" class="pane-toggle" aria-expanded="true" aria-controls="camera-views-content" title="Toggle camera views">−</button>
+          </div>
+          <div id="camera-views-content" class="right-pane-content">
+            <div id="camera-views-container"></div>
+          </div>
+        </aside>
       </main>
     </div>
     <script type="module" src="/src/main.js"></script>

@@ -1,6 +1,6 @@
 /**
  * Parses and validates WebSocket pose stream messages from the hub.
- * Message format: { group_name, poses: [{ keypoints: [Point3D|null], score }], timestamp_ms }
+ * Message format: { group_name, poses, camera_views?, timestamp_ms }
  */
 
 const KEYPOINT_NAMES = [
@@ -26,7 +26,10 @@ const KEYPOINT_NAMES = [
 /**
  * @typedef {{ x: number, y: number, z: number, score: number }} Point3D
  * @typedef {{ keypoints: (Point3D|null)[], score: number }} Pose3DJson
- * @typedef {{ group_name: string, poses: Pose3DJson[], timestamp_ms: number }} PoseStreamMessage
+ * @typedef {{ x: number, y: number, score: number }} Point2D
+ * @typedef {{ keypoints: (Point2D|null)[], score: number }} Pose2DJson
+ * @typedef {{ camera_name: string, poses: Pose2DJson[] }} CameraViewJson
+ * @typedef {{ group_name: string, poses: Pose3DJson[], camera_views?: CameraViewJson[], timestamp_ms: number }} PoseStreamMessage
  */
 
 /**
@@ -42,9 +45,13 @@ export function parsePoseStreamMessage(raw) {
     if (!Array.isArray(data.poses)) return null;
     if (typeof data.timestamp_ms !== 'number' && typeof data.timestamp_ms !== 'undefined') return null;
     const poses = data.poses.map(normalizePose);
+    const camera_views = Array.isArray(data.camera_views)
+      ? data.camera_views.map(normalizeCameraView)
+      : [];
     return {
       group_name: data.group_name,
       poses,
+      camera_views,
       timestamp_ms: typeof data.timestamp_ms === 'number' ? data.timestamp_ms : 0,
     };
   } catch {
@@ -82,10 +89,60 @@ function isValidPoint(k) {
   );
 }
 
+function isValidPoint2D(k) {
+  return (
+    k != null &&
+    typeof k === 'object' &&
+    typeof k.x === 'number' &&
+    typeof k.y === 'number' &&
+    (typeof k.score === 'number' || k.score === undefined)
+  );
+}
+
 function emptyPose() {
   return {
     keypoints: Array(17).fill(null),
     score: 0,
+  };
+}
+
+function emptyPose2D() {
+  return {
+    keypoints: Array(17).fill(null),
+    score: 0,
+  };
+}
+
+/**
+ * Normalize a 2D pose so keypoints is a 17-element array (null for missing).
+ * @param {unknown} p
+ * @returns {Pose2DJson}
+ */
+export function normalizePose2D(p) {
+  if (!p || typeof p !== 'object') return emptyPose2D();
+  const keypoints = Array.isArray(p.keypoints) ? p.keypoints : [];
+  const arr = [];
+  for (let i = 0; i < 17; i++) {
+    const k = keypoints[i];
+    arr.push(isValidPoint2D(k) ? { x: k.x, y: k.y, score: typeof k.score === 'number' ? k.score : 0 } : null);
+  }
+  return {
+    keypoints: arr,
+    score: typeof p.score === 'number' ? p.score : 0,
+  };
+}
+
+/**
+ * Normalize a camera view: camera_name and array of 2D poses.
+ * @param {unknown} v
+ * @returns {CameraViewJson}
+ */
+export function normalizeCameraView(v) {
+  if (!v || typeof v !== 'object') return { camera_name: '', poses: [] };
+  const poses = Array.isArray(v.poses) ? v.poses.map(normalizePose2D) : [];
+  return {
+    camera_name: typeof v.camera_name === 'string' ? v.camera_name : '',
+    poses,
   };
 }
 
