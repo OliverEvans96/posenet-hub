@@ -128,6 +128,7 @@ pub fn calculate_camera_matrix(
 ///
 /// `extrinsics.view_matrix` is treated as a 3x4 row-major matrix `[R|t]` that maps world → camera:
 /// \( x_c = R x_w + t \). Camera center is \( C = -R^T t \).
+/// World convention: up = +Z; camera right/up/forward are in world frame.
 fn camera_model_from_info(camera: &CameraInfo) -> Option<CameraModel> {
     let which = camera.which_camera.as_ref()?;
     let calibration = camera.calibration.as_ref()?;

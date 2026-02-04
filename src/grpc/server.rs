@@ -1401,73 +1401,385 @@ impl GrpcServer {
 // TODO: Move these tests elsewhere?
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU16, Ordering};
+    use std::time::Duration;
+
+    use tokio::sync::mpsc;
+    use tokio::time::{sleep, timeout};
+    use tonic::transport::Channel;
+    use tonic::Request;
+
+    use crate::grpc::client as grpc_client;
+    use crate::grpc::proto::hub_service_client::HubServiceClient;
+    use crate::grpc::proto::CameraIdentifier;
+    use crate::grpc::proto::CameraInfo;
+    use crate::grpc::proto::CameraExtrinsics;
+    use crate::grpc::proto::CameraIntrinsics;
+    use crate::grpc::proto::CalibrationParameters;
+    use crate::grpc::proto::PingRequest;
+    use crate::grpc::proto::SessionToken;
+    use crate::grpc::proto::{BundleAdjustmentOptions, BundleAdjustmentRequest, Point2D, Point3D, Pose2D, Pose3D, TriangulationRequest};
+
+    const TEST_PORT_BASE: u16 = 50200;
+    const SERVER_STARTUP_MS: u64 = 200;
+    const TEST_TIMEOUT: Duration = Duration::from_secs(15);
+    static NEXT_TEST_PORT: AtomicU16 = AtomicU16::new(TEST_PORT_BASE);
+
+    async fn start_test_server() -> u16 {
+        let port = NEXT_TEST_PORT.fetch_add(1, Ordering::SeqCst);
+        let (cameras_tx, cameras_rx) = mpsc::unbounded_channel();
+        let (snapshots_tx, snapshots_rx) = mpsc::unbounded_channel();
+        // Keep receivers alive so Hello can send camera info.
+        tokio::spawn(async move {
+            let _ = cameras_rx;
+            let _ = snapshots_rx;
+            std::future::pending::<()>().await
+        });
+        let config = crate::grpc::server::GrpcConfig::new("127.0.0.1", port).expect("GrpcConfig");
+        let grpc_server = crate::grpc::server::GrpcServer::new(config, cameras_tx, snapshots_tx);
+        tokio::spawn(async move {
+            let _ = grpc_server.run().await;
+        });
+        sleep(Duration::from_millis(SERVER_STARTUP_MS)).await;
+        port
+    }
+
+    async fn connect_client(port: u16) -> HubServiceClient<Channel> {
+        let addr = format!("http://127.0.0.1:{}", port);
+        timeout(TEST_TIMEOUT, HubServiceClient::connect(addr))
+            .await
+            .expect("connect timeout")
+            .expect("client connect")
+    }
+
+    fn camera_info_for_triangulation(group_name: &str, camera_name: &str, view_matrix: Vec<f64>) -> CameraInfo {
+        CameraInfo {
+            which_camera: Some(CameraIdentifier {
+                group_name: group_name.to_string(),
+                camera_name: camera_name.to_string(),
+            }),
+            calibration: Some(CalibrationParameters {
+                intrinsics: Some(CameraIntrinsics {
+                    camera_matrix: vec![500.0, 0.0, 320.0, 0.0, 500.0, 240.0, 0.0, 0.0, 1.0],
+                    distortion: vec![0.0, 0.0, 0.0, 0.0, 0.0],
+                    rms_error: 0.0,
+                }),
+                extrinsics: Some(CameraExtrinsics { view_matrix }),
+            }),
+        }
+    }
+
+    fn full_pose2d(x: f64, y: f64, score: f64) -> Pose2D {
+        let pt = Point2D { x, y, score };
+        Pose2D {
+            nose: Some(pt.clone()),
+            left_eye: Some(pt.clone()),
+            right_eye: Some(pt.clone()),
+            left_ear: Some(pt.clone()),
+            right_ear: Some(pt.clone()),
+            left_shoulder: Some(pt.clone()),
+            right_shoulder: Some(pt.clone()),
+            left_elbow: Some(pt.clone()),
+            right_elbow: Some(pt.clone()),
+            left_wrist: Some(pt.clone()),
+            right_wrist: Some(pt.clone()),
+            left_hip: Some(pt.clone()),
+            right_hip: Some(pt.clone()),
+            left_knee: Some(pt.clone()),
+            right_knee: Some(pt.clone()),
+            left_ankle: Some(pt.clone()),
+            right_ankle: Some(pt),
+            score,
+        }
+    }
+
+    fn full_pose3d(z: f64, score: f64) -> Pose3D {
+        let pt = Point3D { x: 0.0, y: 0.0, z, score: 1.0 };
+        Pose3D {
+            nose: Some(pt.clone()),
+            left_eye: Some(pt.clone()),
+            right_eye: Some(pt.clone()),
+            left_ear: Some(pt.clone()),
+            right_ear: Some(pt.clone()),
+            left_shoulder: Some(pt.clone()),
+            right_shoulder: Some(pt.clone()),
+            left_elbow: Some(pt.clone()),
+            right_elbow: Some(pt.clone()),
+            left_wrist: Some(pt.clone()),
+            right_wrist: Some(pt.clone()),
+            left_hip: Some(pt.clone()),
+            right_hip: Some(pt.clone()),
+            left_knee: Some(pt.clone()),
+            right_knee: Some(pt.clone()),
+            left_ankle: Some(pt.clone()),
+            right_ankle: Some(pt),
+            score,
+        }
+    }
+
     #[tokio::test]
     async fn test_hello() {
-        assert!(async { true }.await);
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            let name = grpc_client::hello(&mut client, "unit_hello_group".to_string())
+                .await
+                .expect("hello");
+            assert!(!name.is_empty());
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_camera_control() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+
+            // CameraControl requires a valid SessionToken returned by Hello.
+            // Using an unknown token should fail with FailedPrecondition.
+            let bad = SessionToken { data: "not-a-real-token".to_string() };
+            let res = client.camera_control(Request::new(bad)).await;
+            assert!(res.is_err());
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_camera_data_sink() {
-        todo!()
-    }
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
 
-    // Admin
+            // CameraDataSink requires the stream to begin with a CommandToken.
+            // An empty stream should fail with InvalidArgument.
+            let (tx, rx) = tokio::sync::mpsc::channel::<crate::grpc::proto::CameraMessage>(1);
+            drop(tx);
+            let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+            let res = client.camera_data_sink(Request::new(request_stream)).await;
+            assert!(res.is_err());
+        })
+        .await
+        .expect("test timeout");
+    }
 
     #[tokio::test]
     async fn test_list_groups() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            let groups = grpc_client::list_groups(&mut client).await.expect("list_groups");
+            assert!(groups.is_empty());
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_list_cameras() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            let group = "unit_list_cameras_group".to_string();
+            let camera_name = grpc_client::hello(&mut client, group.clone())
+                .await
+                .expect("hello");
+            let cameras = grpc_client::list_cameras(&mut client, group).await.expect("list_cameras");
+            assert_eq!(cameras, vec![camera_name]);
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_get_camera_info() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            let group = "unit_get_camera_info_group".to_string();
+            let camera_name = grpc_client::hello(&mut client, group.clone())
+                .await
+                .expect("hello");
+            let which = CameraIdentifier {
+                group_name: group,
+                camera_name,
+            };
+            let info = grpc_client::get_camera_info(&mut client, which)
+                .await
+                .expect("get_camera_info");
+            assert!(info.which_camera.is_some());
+            assert!(info.calibration.is_some());
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_stream_control() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            let group = "unit_stream_control_group".to_string();
+            let status = grpc_client::stream_control_start(&mut client, group.clone(), true, false, None)
+                .await
+                .expect("stream_control_start");
+            assert!(status.is_streaming);
+            let status = grpc_client::stream_control_stop(&mut client, group)
+                .await
+                .expect("stream_control_stop");
+            assert!(!status.is_streaming);
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_take_snapshots() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            let resp = grpc_client::get_snapshots(&mut client, "unit_snap_group".to_string(), true, false, false)
+                .await
+                .expect("get_snapshots");
+            assert!(!resp.snapshot_id.is_empty());
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_get_current() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            // Without a prior snapshot, GetCurrent should error.
+            let which = CameraIdentifier {
+                group_name: "unit_current_group".to_string(),
+                camera_name: String::new(),
+            };
+            assert!(grpc_client::get_current(&mut client, which).await.is_err());
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_calibrate() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            let req = grpc_client::build_calibration_request(
+                "unit_cal_group".to_string(),
+                None,
+                true,
+                false,
+            );
+            let resp = grpc_client::calibrate(&mut client, req).await.expect("calibrate");
+            // No cameras connected in this group -> empty.
+            assert!(resp.states.is_empty());
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_ping() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+            let resp = grpc_client::ping(
+                &mut client,
+                PingRequest {
+                    which_camera: None,
+                    timeout: None,
+                },
+            )
+            .await
+            .expect("ping");
+            assert!(resp.results.is_empty());
+        })
+        .await
+        .expect("test timeout");
     }
-
-    // A la carte
 
     #[tokio::test]
     async fn test_triangulate() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+
+            // Minimal triangulate smoke test: empty stream should succeed with empty response.
+            let (tx, rx) = tokio::sync::mpsc::channel(1);
+            drop(tx);
+            let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+            let resp = client
+                .triangulate(Request::new(stream))
+                .await
+                .expect("triangulate")
+                .into_inner();
+            assert!(resp.poses.is_empty());
+        })
+        .await
+        .expect("test timeout");
     }
 
     #[tokio::test]
     async fn test_bundle_adjustment() {
-        todo!()
+        timeout(TEST_TIMEOUT, async {
+            let port = start_test_server().await;
+            let mut client = connect_client(port).await;
+
+            // Valid bundle adjustment request (similar to integration test) to avoid triggering
+            // assertions in the C++/Eigen layer for empty inputs.
+            let cam1 = camera_info_for_triangulation(
+                "ba_unit",
+                "c1",
+                vec![
+                    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+                ],
+            );
+            let cam2 = camera_info_for_triangulation(
+                "ba_unit",
+                "c2",
+                vec![
+                    1.0, 0.0, 0.0, 0.5, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+                ],
+            );
+            let pose1 = full_pose2d(320.0, 240.0, 1.0);
+            let pose2 = full_pose2d(330.0, 240.0, 1.0);
+            let initial_pose = full_pose3d(5.0, 1.0);
+
+            let req = BundleAdjustmentRequest {
+                views: vec![
+                    TriangulationRequest {
+                        camera: Some(cam1),
+                        poses: vec![pose1],
+                    },
+                    TriangulationRequest {
+                        camera: Some(cam2),
+                        poses: vec![pose2],
+                    },
+                ],
+                initial_poses: vec![initial_pose],
+                options: Some(BundleAdjustmentOptions {
+                    camera_rotation: true,
+                    camera_translation: true,
+                    camera_intrinsics: false,
+                    pose3d: true,
+                }),
+            };
+
+            let response = client
+                .bundle_adjustment(Request::new(req))
+                .await
+                .expect("bundle_adjustment")
+                .into_inner();
+            assert_eq!(response.cameras.len(), 2);
+            assert_eq!(response.poses.len(), 1);
+        })
+        .await
+        .expect("test timeout");
     }
 }

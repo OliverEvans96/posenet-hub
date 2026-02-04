@@ -3,7 +3,6 @@
 use std::convert::TryInto;
 
 use crate::errors::CalculationError;
-use crate::errors::OpenMvgError;
 use crate::grpc::proto::{CalibrationParameters, Point2D, Pose2D, Pose3D};
 use crate::openmvg::openmvg::get_projection;
 use crate::triangulator::calculate_camera_matrix;
@@ -41,7 +40,7 @@ pub fn project_pose3d_to_pose2d(
     let bounds = image_bounds_from_intrinsics(calibration);
     let mut points2d: Vec<Option<Point2D>> = Vec::with_capacity(17);
     for (pt, _s) in &points3d {
-        let x2d = get_projection(*pt, p).map_err(projection_error_to_calculation)?;
+        let x2d = get_projection(*pt, p).map_err(CalculationError::from)?;
         let in_frame = bounds
             .map(|(w, h)| point_in_frame(x2d.x, x2d.y, w, h))
             .unwrap_or(true);
@@ -75,10 +74,6 @@ pub fn project_pose3d_to_pose2d(
         right_ankle: points2d[16].clone(),
         score,
     })
-}
-
-fn projection_error_to_calculation(e: OpenMvgError) -> CalculationError {
-    CalculationError::CameraMatrixFailed(crate::errors::MissingField::Keypoint(e.to_string()))
 }
 
 #[cfg(test)]

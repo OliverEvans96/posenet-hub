@@ -56,8 +56,8 @@ describe('parsePoseStreamMessage', () => {
           height_px: 480,
           position: { x: 1, y: 2, z: 3, score: 1 },
           right: { x: 1, y: 0, z: 0, score: 1 },
-          up: { x: 0, y: 1, z: 0, score: 1 },
-          forward: { x: 0, y: 0, z: 1, score: 1 },
+          up: { x: 0, y: 0, z: 1, score: 1 },
+          forward: { x: 0, y: 1, z: 0, score: 1 },
         },
       ],
     });
@@ -67,6 +67,8 @@ describe('parsePoseStreamMessage', () => {
     expect(msg.cameras[0].camera_name).toBe('cam0');
     expect(msg.cameras[0].fx).toBe(800);
     expect(msg.cameras[0].width_px).toBe(640);
+    expect(msg.cameras[0].up).toEqual({ x: 0, y: 0, z: 1, score: 1 });
+    expect(msg.cameras[0].forward).toEqual({ x: 0, y: 1, z: 0, score: 1 });
   });
 
   it('parses a message with one pose and keypoints', () => {
@@ -196,11 +198,18 @@ describe('normalizeCameraModel', () => {
       height_px: 400,
       position: { x: 0, y: 0, z: 0, score: 1 },
       right: { x: 1, y: 0, z: 0, score: 1 },
-      up: { x: 0, y: 1, z: 0, score: 1 },
-      forward: { x: 0, y: 0, z: 1, score: 1 },
+      up: { x: 0, y: 0, z: 1, score: 1 },
+      forward: { x: 0, y: 1, z: 0, score: 1 },
     });
     expect(c.fx).toBe(500);
     expect(c.height_px).toBe(400);
+  });
+
+  it('uses Z-up default when up/forward omitted (world up = +Z)', () => {
+    const c = normalizeCameraModel({ camera_name: 'x' });
+    expect(c.up).toEqual({ x: 0, y: 0, z: 1, score: 1 });
+    expect(c.forward).toEqual({ x: 0, y: 1, z: 0, score: 1 });
+    expect(c.right).toEqual({ x: 1, y: 0, z: 0, score: 1 });
   });
 });
 

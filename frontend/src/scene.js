@@ -1,6 +1,7 @@
 /**
  * Three.js scene for rendering 3D pose skeletons.
  * Uses OrbitControls for pan / zoom / rotate. Includes a floor grid and XYZ axes.
+ * Convention: world up = +Z (consistent with backend and pose data).
  */
 
 import * as THREE from 'three';

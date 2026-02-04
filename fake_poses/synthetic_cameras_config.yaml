@@ -11,7 +11,7 @@ pose_csv_path: "fake_poses/running_pose.csv"
 
 fps: 30
 # Radians per second around Z axis (yaw). e.g. 0.1 ≈ 5.7°/s, 1.0 ≈ one full turn per 2π s
-rotation_speed_rad_per_sec: 0.3
+rotation_speed_rad_per_sec: 0.5
 
 cameras:
   # Coordinates are in meters. Convention used here: world_up is +Z.

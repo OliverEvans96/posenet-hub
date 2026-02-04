@@ -29,16 +29,6 @@ pub enum MissingField {
 }
 
 #[derive(Debug, Error)]
-pub enum CalculationError {
-    #[error("Could not construct camera matrix")]
-    CameraMatrixFailed(#[from] MissingField),
-}
-
-// -----------------------------------------------------------------------------
-// OpenMVG / FFI / math (library)
-// -----------------------------------------------------------------------------
-
-#[derive(Debug, Error)]
 pub enum OpenMvgError {
     #[error("FFI conversion failed (null or invalid pointer)")]
     FfiConversionFailed,
@@ -46,6 +36,14 @@ pub enum OpenMvgError {
     NonHomogeneousPoint,
     #[error("Dimension mismatch: points2d len {points} != camera_poses len {cameras}")]
     DimensionMismatch { points: usize, cameras: usize },
+}
+
+#[derive(Debug, Error)]
+pub enum CalculationError {
+    #[error("Could not construct camera matrix")]
+    CameraMatrixFailed(#[from] MissingField),
+    #[error(transparent)]
+    ProjectionFailed(#[from] OpenMvgError),
 }
 
 // -----------------------------------------------------------------------------

@@ -155,6 +155,7 @@ export function normalizeCameraView(v) {
  * @returns {CameraModelJson}
  */
 export function normalizeCameraModel(c) {
+  // Default camera frame: world up = +Z (right-handed: right = +X, up = +Z, forward = +Y).
   const empty = {
     camera_name: '',
     fx: 0,
@@ -165,8 +166,8 @@ export function normalizeCameraModel(c) {
     height_px: 0,
     position: { x: 0, y: 0, z: 0, score: 1 },
     right: { x: 1, y: 0, z: 0, score: 1 },
-    up: { x: 0, y: 1, z: 0, score: 1 },
-    forward: { x: 0, y: 0, z: 1, score: 1 },
+    up: { x: 0, y: 0, z: 1, score: 1 },
+    forward: { x: 0, y: 1, z: 0, score: 1 },
   };
   if (!c || typeof c !== 'object') return empty;
   const name = typeof c.camera_name === 'string' ? c.camera_name : '';

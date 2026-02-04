@@ -95,13 +95,13 @@ pub fn rotate_pose_around(
     }
 }
 
-/// Rotation around vertical (Y) axis for given angle in radians.
+/// Rotation around Y axis for given angle in radians.
 #[allow(dead_code)]
 pub fn rotation_around_y_rad(angle_rad: f64) -> Rotation3<f64> {
     Rotation3::from_euler_angles(0.0, angle_rad, 0.0)
 }
 
-/// Rotation around Z axis (yaw: horizontal plane) for given angle in radians.
+/// Rotation around vertical (Z) axis for given angle in radians (world up = +Z).
 /// Use this for a subject spinning in place (constant rate with elapsed time).
 pub fn rotation_around_z_rad(angle_rad: f64) -> Rotation3<f64> {
     Rotation3::from_euler_angles(0.0, 0.0, angle_rad)
@@ -118,12 +118,12 @@ mod tests {
         let points = load_pose_csv(&path).expect("load running_pose.csv");
         assert_eq!(points.len(), 17);
         // Nose first
-        assert!((points[0].x - (-2.461178)).abs() < 1e-5);
-        assert!((points[0].y - (-1.480207)).abs() < 1e-5);
-        assert!((points[0].z - 4.222726).abs() < 1e-5);
+        assert!((points[0].x - (-0.548358)).abs() < 1e-5);
+        assert!((points[0].y - (-0.475308)).abs() < 1e-5);
+        assert!((points[0].z - 1.680916).abs() < 1e-5);
         // right_ankle last
-        assert!((points[16].x - (-1.478966)).abs() < 1e-5);
-        assert!((points[16].z - 1.049240).abs() < 1e-5);
+        assert!((points[16].x - (-0.099847)).abs() < 1e-5);
+        assert!((points[16].z - 0.231794).abs() < 1e-5);
     }
 
     #[test]
