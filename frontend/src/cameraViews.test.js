@@ -53,13 +53,15 @@ describe('createCameraViews', () => {
     if (container.parentNode) container.remove();
   });
 
-  it('returns update, setVideoOptions, and dispose', () => {
+  it('returns update, setVideoOptions, setKnownCameras, and dispose', () => {
     const views = createCameraViews(container);
     expect(views).toHaveProperty('update');
     expect(views).toHaveProperty('setVideoOptions');
+    expect(views).toHaveProperty('setKnownCameras');
     expect(views).toHaveProperty('dispose');
     expect(typeof views.update).toBe('function');
     expect(typeof views.setVideoOptions).toBe('function');
+    expect(typeof views.setKnownCameras).toBe('function');
     expect(typeof views.dispose).toBe('function');
     views.dispose();
   });
@@ -115,6 +117,45 @@ describe('createCameraViews', () => {
       const panels = container.querySelectorAll('.camera-view-panel');
       expect(panels.length).toBe(1);
       expect(panels[0].querySelector('.camera-view-title')?.textContent).toBe('test_cam');
+      views.dispose();
+    } finally {
+      HTMLCanvasElement.prototype.getContext = origGetContext;
+    }
+  });
+
+  it('setKnownCameras then update([]) shows panels for known cameras (no pose data)', () => {
+    const origGetContext = HTMLCanvasElement.prototype.getContext;
+    const mock2D = {
+      clearRect: () => {},
+      fillRect: () => {},
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      stroke: () => {},
+      arc: () => {},
+      fill: () => {},
+      setTransform: () => {},
+      save: () => {},
+      restore: () => {},
+      rect: () => {},
+      clip: () => {},
+    };
+    HTMLCanvasElement.prototype.getContext = function (type) {
+      if (type === '2d') return mock2D;
+      return origGetContext?.call(this, type) ?? null;
+    };
+    try {
+      const views = createCameraViews(container);
+      views.setKnownCameras(['cam1', 'cam2']);
+      views.update([]);
+      const panels = container.querySelectorAll('.camera-view-panel');
+      expect(panels.length).toBe(2);
+      const titles = [...panels].map((p) => p.querySelector('.camera-view-title')?.textContent);
+      expect(titles).toContain('cam1');
+      expect(titles).toContain('cam2');
       views.dispose();
     } finally {
       HTMLCanvasElement.prototype.getContext = origGetContext;

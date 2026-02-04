@@ -93,5 +93,6 @@ describe('AdminMethods', () => {
     expect(AdminMethods.GetCurrent).toBe('GetCurrent');
     expect(AdminMethods.Calibrate).toBe('Calibrate');
     expect(AdminMethods.Ping).toBe('Ping');
+    expect(AdminMethods.UpdateCameras).toBe('UpdateCameras');
   });
 });

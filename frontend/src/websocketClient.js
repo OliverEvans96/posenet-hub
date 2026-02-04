@@ -4,7 +4,14 @@
 
 import { parsePoseStreamMessage } from './poseMessage.js';
 
-const DEFAULT_WS_URL = 'ws://localhost:9001';
+/** Default WebSocket URL from current location (so mobile can connect when opening via host IP). */
+function getDefaultWsUrl() {
+  if (typeof window === 'undefined' || !window.location) return 'ws://localhost:9001';
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.hostname || 'localhost';
+  const port = new URL(window.location.href).searchParams.get('ws') || '9001';
+  return `${proto}//${host}:${port}`;
+}
 
 /**
  * @param {string} [url]
@@ -13,7 +20,8 @@ const DEFAULT_WS_URL = 'ws://localhost:9001';
  *   - onRawMessage: optional; called with raw string first. If it returns true, the message is not parsed as pose.
  * @returns {{ connect: () => void, disconnect: () => void, getState: () => 'connecting'|'open'|'closed', send: (text: string) => void }}
  */
-export function createPoseStreamClient(url = DEFAULT_WS_URL, options) {
+export function createPoseStreamClient(url, options) {
+  const resolvedUrl = url ?? getDefaultWsUrl();
   const { onPoseMessage, onRawMessage } = typeof options === 'function' ? { onPoseMessage: options, onRawMessage: undefined } : options;
 
   /** @type {WebSocket|null} */
@@ -51,7 +59,7 @@ export function createPoseStreamClient(url = DEFAULT_WS_URL, options) {
       return;
     }
     state = 'connecting';
-    ws = new WebSocket(url);
+    ws = new WebSocket(resolvedUrl);
     ws.onopen = () => {
       state = 'open';
       reconnectAttempts = 0;

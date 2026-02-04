@@ -65,4 +65,5 @@ export const AdminMethods = {
   GetCurrent: 'GetCurrent',
   Calibrate: 'Calibrate',
   Ping: 'Ping',
+  UpdateCameras: 'UpdateCameras',
 };

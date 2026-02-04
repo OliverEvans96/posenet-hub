@@ -9,19 +9,34 @@
   <body>
     <div id="app">
       <header class="header">
-        <h1>PoseNet Hub – Pose Stream</h1>
-        <div class="info-bar" id="info-bar">
-          <span id="connection-status">Disconnected</span>
-          <label for="group-select" class="info-bar-label">Group</label>
-          <select id="group-select" class="group-select" aria-label="Select pose stream group">
-            <option value="">—</option>
-          </select>
-          <span id="group-name">—</span>
-          <span id="pose-count">0 poses</span>
-          <span id="timestamp">—</span>
-          <span id="message-rate">0 msg/s</span>
+        <div class="header-left">
+          <h1>PoseNet Hub – Pose Stream</h1>
+          <div class="info-bar" id="info-bar">
+            <span id="connection-status">Disconnected</span>
+            <label for="group-select" class="info-bar-label">Group</label>
+            <select id="group-select" class="group-select" aria-label="Select pose stream group">
+              <option value="">—</option>
+            </select>
+            <span id="group-name">—</span>
+            <span id="pose-count">0 poses</span>
+            <span id="timestamp">—</span>
+            <span id="message-rate">0 msg/s</span>
+          </div>
         </div>
+        <button type="button" id="mobile-menu-toggle" class="mobile-menu-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="mobile-drawer" title="Menu">☰</button>
       </header>
+      <div id="mobile-drawer-backdrop" class="mobile-drawer-backdrop" aria-hidden="true"></div>
+      <aside id="mobile-drawer" class="mobile-drawer" aria-label="View selector" aria-hidden="true">
+        <div class="mobile-drawer-header">
+          <h2 class="mobile-drawer-title">View</h2>
+          <button type="button" id="mobile-drawer-close" class="mobile-drawer-close" aria-label="Close menu">×</button>
+        </div>
+        <ul class="mobile-drawer-menu">
+          <li><button type="button" class="mobile-drawer-item" data-mobile-view="3d">3D</button></li>
+          <li class="mobile-drawer-cameras" id="mobile-drawer-cameras"></li>
+          <li><button type="button" class="mobile-drawer-item" data-mobile-view="control">Control panel</button></li>
+        </ul>
+      </aside>
       <main class="main-content">
         <div id="canvas-container"></div>
         <aside id="control-pane" class="left-pane" aria-label="Admin control panel">
@@ -63,6 +78,12 @@
               <div class="control-actions">
                 <button type="button" id="btn-calibrate" class="control-btn">Calibrate</button>
                 <button type="button" id="btn-ping" class="control-btn">Ping</button>
+              </div>
+            </div>
+            <div class="control-section">
+              <h3 class="control-section-title">Update</h3>
+              <div class="control-actions">
+                <button type="button" id="btn-update-cameras" class="control-btn">Update cameras</button>
               </div>
             </div>
             <pre id="out-control" class="control-output" aria-live="polite"></pre>

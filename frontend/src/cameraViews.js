@@ -48,7 +48,7 @@ export function getCameraStreamUrl(videoBaseUrl, groupName, cameraName) {
 /**
  * @param {HTMLDivElement} container
  * @param {{ onViewClick?: (cameraName: string) => void, onKeypointClick?: (keypointIndex: number | null) => void, videoBaseUrl?: string | null, groupName?: string | null }} [options]
- * @returns {{ update: (camera_views: import('./poseMessage.js').CameraViewJson[]) => void, setHighlight: (cameraName: string | null) => void, setKeypointHighlight: (keypointIndex: number | null) => void, setVideoOptions: (videoBaseUrl: string | null, groupName: string | null) => void, dispose: () => void }}
+ * @returns {{ update: (camera_views: import('./poseMessage.js').CameraViewJson[]) => void, setHighlight: (cameraName: string | null) => void, setKeypointHighlight: (keypointIndex: number | null) => void, setVideoOptions: (videoBaseUrl: string | null, groupName: string | null) => void, setKnownCameras: (cameraNames: string[]) => void, dispose: () => void }}
  */
 export function createCameraViews(container, options = {}) {
   const { onViewClick, onKeypointClick } = options;
@@ -63,6 +63,8 @@ export function createCameraViews(container, options = {}) {
   const panels = new Map();
   /** @type {import('./poseMessage.js').CameraViewJson[]} */
   let lastCameraViews = [];
+  /** Camera names for the selected group (from ListCameras). Panels shown for these even when no pose data. */
+  let knownCameraNames = [];
   let highlightedKeypointIndex = null;
 
   function ensurePanel(cameraName) {
@@ -160,6 +162,11 @@ export function createCameraViews(container, options = {}) {
     });
   }
 
+  /** Set camera names for the selected group (from ListCameras). Panels are shown for these even when no pose data. */
+  function setKnownCameras(cameraNames) {
+    knownCameraNames = Array.isArray(cameraNames) ? cameraNames : [];
+  }
+
   function clearPanel(entry) {
     const { canvas, ctx } = entry;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -237,25 +244,23 @@ export function createCameraViews(container, options = {}) {
   }
 
   function update(camera_views) {
-    if (!camera_views || camera_views.length === 0) {
-      lastCameraViews = [];
-      panels.forEach((entry) => clearPanel(entry));
-      return;
-    }
-    lastCameraViews = camera_views;
-    const w = CANVAS_WIDTH;
-    const h = CANVAS_HEIGHT;
+    // Show panels when either pose data (camera_views) or known cameras (from ListCameras) are present.
+    const viewNames = new Set((camera_views || []).map((v) => v.camera_name));
+    const allNames = new Set([...knownCameraNames, ...viewNames]);
+    const viewsByCamera = new Map((camera_views || []).map((v) => [v.camera_name, v]));
 
-    for (const view of camera_views) {
-      const entry = ensurePanel(view.camera_name);
+    lastCameraViews = camera_views || [];
+
+    for (const cameraName of allNames) {
+      const entry = ensurePanel(cameraName);
       if (!entry) continue;
+      const view = viewsByCamera.get(cameraName) || { camera_name: cameraName, poses: [] };
       drawView(entry, view, highlightedKeypointIndex);
     }
 
-    // Remove panels for cameras no longer present
-    const currentNames = new Set(camera_views.map((v) => v.camera_name));
+    // Remove panels for cameras no longer in known list or camera_views
     for (const [name, entry] of panels.entries()) {
-      if (!currentNames.has(name)) {
+      if (!allNames.has(name)) {
         entry.panel.remove();
         panels.delete(name);
       }
@@ -271,10 +276,17 @@ export function createCameraViews(container, options = {}) {
     }
   }
 
+  /** On mobile, show only this camera's panel; pass null to show all. */
+  function setMobileSingleCamera(cameraName) {
+    panels.forEach((entry, name) => {
+      entry.panel.classList.toggle('mobile-selected', name === cameraName);
+    });
+  }
+
   function dispose() {
     grid.remove();
     panels.clear();
   }
 
-  return { update, setHighlight, setKeypointHighlight, setVideoOptions, dispose };
+  return { update, setHighlight, setKeypointHighlight, setVideoOptions, setKnownCameras, setMobileSingleCamera, dispose };
 }

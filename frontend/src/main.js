@@ -22,8 +22,13 @@ const cameraStatusEl = document.getElementById('camera-status');
 
 const OUT_CONTROL_ID = 'out-control';
 
+const MOBILE_BREAKPOINT_PX = 768;
+
 let selectedCameraName = null;
 let selectedKeypointIndex = null;
+
+/** Camera names for the selected group (used for mobile 2D menu). */
+let knownCameraNames = [];
 
 function updateStatusText() {
   if (!cameraStatusEl) return;
@@ -71,6 +76,7 @@ let lastMessageTime = 0;
 const rateWindow = [];
 const RATE_WINDOW_MS = 2000;
 
+/** WebSocket URL from current page origin so mobile (and other devices) can connect when opening via host IP/hostname. */
 function getWsUrl() {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.hostname || 'localhost';
@@ -78,7 +84,7 @@ function getWsUrl() {
   return `${proto}//${host}:${wsPort}`;
 }
 
-/** Base URL for MJPEG camera streams (HTTP server, default port 9002). */
+/** Base URL for MJPEG camera streams from current page origin so mobile can access camera API on the same host. */
 function getVideoBaseUrl() {
   const proto = window.location.protocol === 'https:' ? 'https:' : 'http:';
   const host = window.location.hostname || 'localhost';
@@ -175,19 +181,133 @@ function refreshCameras() {
   const group = getSelectedGroup();
   if (!group) {
     if (cameraSelect) cameraSelect.innerHTML = '<option value="">(all)</option>';
+    if (cameraViews && cameraViews.setKnownCameras) cameraViews.setKnownCameras([]);
+    if (cameraViews) cameraViews.update([]);
     return;
   }
   adminApi.request(AdminMethods.ListCameras, { group_name: group })
     .then((result) => {
       const names = result && result.camera_names ? result.camera_names : [];
+      knownCameraNames = names;
+      updateMobileMenuCameras();
+      if (cameraViews && cameraViews.setKnownCameras) {
+        cameraViews.setKnownCameras(names);
+        cameraViews.update([]);
+      }
       if (!cameraSelect) return;
       const current = cameraSelect.value;
       cameraSelect.innerHTML = '<option value="">(all)</option>' +
         names.map((n) => `<option value="${escapeHtml(n)}"${n === current ? ' selected' : ''}>${escapeHtml(n)}</option>`).join('');
     })
     .catch(() => {
+      knownCameraNames = [];
+      updateMobileMenuCameras();
       if (cameraSelect) cameraSelect.innerHTML = '<option value="">(all)</option>';
+      if (cameraViews && cameraViews.setKnownCameras) cameraViews.setKnownCameras([]);
+      if (cameraViews) cameraViews.update([]);
     });
+}
+
+function updateMobileMenuCameras() {
+  const container = document.getElementById('mobile-drawer-cameras');
+  if (!container) return;
+  container.innerHTML = '';
+  for (const name of knownCameraNames) {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mobile-drawer-item';
+    btn.dataset.mobileView = '2d';
+    btn.dataset.camera = name;
+    btn.textContent = `2D: ${name}`;
+    li.appendChild(btn);
+    container.appendChild(li);
+  }
+}
+
+function isMobileLayout() {
+  return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches;
+}
+
+/** Active mobile view: '3d' | '2d' (with mobileSelectedCamera set) | 'control' */
+let mobileActiveView = '3d';
+let mobileSelectedCamera = null;
+
+function setMobileVisibleView(view, cameraName = null) {
+  const canvasEl = document.getElementById('canvas-container');
+  const controlEl = document.getElementById('control-pane');
+  const cameraViewsEl = document.getElementById('camera-views-pane');
+  if (!canvasEl || !controlEl || !cameraViewsEl) return;
+
+  canvasEl.classList.remove('mobile-visible');
+  controlEl.classList.remove('mobile-visible');
+  cameraViewsEl.classList.remove('mobile-visible');
+
+  if (view === '3d') {
+    canvasEl.classList.add('mobile-visible');
+  } else if (view === 'control') {
+    controlEl.classList.add('mobile-visible');
+  } else if (view === '2d' && cameraName) {
+    cameraViewsEl.classList.add('mobile-visible');
+    if (cameraViews && cameraViews.setMobileSingleCamera) {
+      cameraViews.setMobileSingleCamera(cameraName);
+    }
+  }
+
+  mobileActiveView = view;
+  mobileSelectedCamera = cameraName || null;
+
+  // Update aria-current on menu items
+  document.querySelectorAll('.mobile-drawer-item').forEach((el) => {
+    const viewAttr = el.dataset.mobileView;
+    const camAttr = el.dataset.camera;
+    const isActive = (viewAttr === '3d' && view === '3d') ||
+      (viewAttr === 'control' && view === 'control') ||
+      (viewAttr === '2d' && view === '2d' && camAttr === cameraName);
+    el.setAttribute('aria-current', isActive ? 'true' : 'false');
+  });
+}
+
+function openMobileDrawer() {
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  const drawer = document.getElementById('mobile-drawer');
+  const toggle = document.getElementById('mobile-menu-toggle');
+  if (backdrop) backdrop.classList.add('is-open');
+  if (drawer) {
+    drawer.classList.add('is-open');
+    drawer.setAttribute('aria-hidden', 'false');
+  }
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', 'true');
+    toggle.setAttribute('aria-label', 'Close menu');
+  }
+}
+
+function closeMobileDrawer() {
+  const backdrop = document.getElementById('mobile-drawer-backdrop');
+  const drawer = document.getElementById('mobile-drawer');
+  const toggle = document.getElementById('mobile-menu-toggle');
+  if (backdrop) backdrop.classList.remove('is-open');
+  if (drawer) {
+    drawer.classList.remove('is-open');
+    drawer.setAttribute('aria-hidden', 'true');
+  }
+  if (toggle) {
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-label', 'Open menu');
+  }
+}
+
+function applyMobileLayout() {
+  if (!isMobileLayout()) {
+    document.getElementById('canvas-container')?.classList.remove('mobile-visible');
+    document.getElementById('control-pane')?.classList.remove('mobile-visible');
+    document.getElementById('camera-views-pane')?.classList.remove('mobile-visible');
+    if (cameraViews && cameraViews.setMobileSingleCamera) cameraViews.setMobileSingleCamera(null);
+    closeMobileDrawer();
+    return;
+  }
+  setMobileVisibleView(mobileActiveView, mobileSelectedCamera);
 }
 
 function escapeHtml(s) {
@@ -238,6 +358,44 @@ if (cameraViewsPane && cameraViewsToggle) {
     cameraViewsToggle.title = collapsed ? 'Show camera views' : 'Hide camera views';
   });
 }
+
+// Mobile: hamburger, drawer, view switching
+const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+const mobileDrawerBackdrop = document.getElementById('mobile-drawer-backdrop');
+const mobileDrawer = document.getElementById('mobile-drawer');
+const mobileDrawerClose = document.getElementById('mobile-drawer-close');
+
+if (mobileMenuToggle) {
+  mobileMenuToggle.addEventListener('click', () => {
+    if (!isMobileLayout()) return;
+    openMobileDrawer();
+  });
+}
+if (mobileDrawerBackdrop) {
+  mobileDrawerBackdrop.addEventListener('click', closeMobileDrawer);
+}
+if (mobileDrawerClose) {
+  mobileDrawerClose.addEventListener('click', closeMobileDrawer);
+}
+if (mobileDrawer) {
+  mobileDrawer.addEventListener('click', (e) => {
+    const item = e.target.closest('.mobile-drawer-item');
+    if (!item || !isMobileLayout()) return;
+    const view = item.dataset.mobileView;
+    const camera = item.dataset.camera || null;
+    if (view === '3d') {
+      setMobileVisibleView('3d');
+    } else if (view === 'control') {
+      setMobileVisibleView('control');
+    } else if (view === '2d' && camera) {
+      setMobileVisibleView('2d', camera);
+    }
+    closeMobileDrawer();
+  });
+}
+
+window.addEventListener('resize', applyMobileLayout);
+applyMobileLayout();
 
 // Admin buttons
 function bindAdmin(id, method, paramsFn, outputId) {
@@ -296,6 +454,8 @@ if (btnListCameras) {
       .then((result) => {
         setOutput(OUT_CONTROL_ID, JSON.stringify(result, null, 2));
         const names = result && result.camera_names ? result.camera_names : [];
+        knownCameraNames = names;
+        updateMobileMenuCameras();
         if (cameraSelect) {
           const current = cameraSelect.value;
           cameraSelect.innerHTML = '<option value="">(all)</option>' +
@@ -341,6 +501,11 @@ bindAdmin('btn-ping', AdminMethods.Ping, () => ({
   group_name: getSelectedGroup(),
   camera_name: getSelectedCamera(),
   timeout_secs: 5,
+}), OUT_CONTROL_ID);
+
+bindAdmin('btn-update-cameras', AdminMethods.UpdateCameras, () => ({
+  group_name: getSelectedGroup(),
+  camera_name: getSelectedCamera(),
 }), OUT_CONTROL_ID);
 
 setInterval(() => {
