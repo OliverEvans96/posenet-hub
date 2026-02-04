@@ -30,6 +30,20 @@ pub struct LabeledPoses3D {
     pub time: Instant,
 }
 
+/// Per-camera 2D pose data for streaming to clients (e.g. camera view panels).
+#[derive(Debug, Clone)]
+pub struct CameraView {
+    pub camera_name: String,
+    pub poses: Vec<Pose2D>,
+}
+
+/// Combined 3D poses and per-camera 2D views sent each triangulator tick.
+#[derive(Debug, Clone)]
+pub struct PoseStreamUpdate {
+    pub labeled_poses: LabeledPoses3D,
+    pub camera_views: Vec<CameraView>,
+}
+
 pub struct CameraState {
     pub info: CameraInfo,
     pub matrix: Matrix3x4<f64>,
@@ -127,7 +141,7 @@ pub struct Triangulator {
     group_name: String,
     cameras_rx: UnboundedReceiver<CameraInfo>,
     snapshots_rx: UnboundedReceiver<Snapshot>,
-    poses3d_tx: broadcast::Sender<LabeledPoses3D>,
+    stream_tx: broadcast::Sender<PoseStreamUpdate>,
     cameras: Arc<RwLock<HashMap<String, CameraState>>>,
     poses: Arc<RwLock<HashMap<String, Snapshot>>>,
 }
@@ -138,14 +152,14 @@ impl Triangulator {
         group_name: String,
         cameras_rx: UnboundedReceiver<CameraInfo>,
         snapshots_rx: UnboundedReceiver<Snapshot>,
-        poses3d_tx: broadcast::Sender<LabeledPoses3D>,
+        stream_tx: broadcast::Sender<PoseStreamUpdate>,
     ) -> Self {
         Self {
             config,
             group_name,
             cameras_rx,
             snapshots_rx,
-            poses3d_tx,
+            stream_tx,
             cameras: Arc::new(RwLock::new(HashMap::new())),
             poses: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -155,7 +169,7 @@ impl Triangulator {
     pub async fn run(self) -> Result<(), BoxError> {
         let config = self.config.clone();
         let group_name = self.group_name.clone();
-        let poses3d_tx = self.poses3d_tx;
+        let stream_tx = self.stream_tx;
         let cameras = self.cameras.clone();
         let poses = self.poses.clone();
         let snapshots_rx = self.snapshots_rx;
@@ -174,7 +188,7 @@ impl Triangulator {
                 group_name,
                 poses_for_tri,
                 cameras_for_tri,
-                poses3d_tx,
+                stream_tx,
             )
             .await
         });
@@ -264,7 +278,7 @@ impl Triangulator {
         group_name: String,
         poses: Arc<RwLock<HashMap<String, Snapshot>>>,
         cameras: Arc<RwLock<HashMap<String, CameraState>>>,
-        poses3d_tx: broadcast::Sender<LabeledPoses3D>,
+        stream_tx: broadcast::Sender<PoseStreamUpdate>,
     ) -> Result<(), BoxError> {
         loop {
             let (current, current_cameras, poses_len, poses_is_empty) = {
@@ -292,6 +306,18 @@ impl Triangulator {
                     current_cameras
                 );
             }
+
+            let camera_views: Vec<CameraView> = current
+                .iter()
+                .filter_map(|s| {
+                    let name = s.which_camera.as_ref()?.camera_name.clone();
+                    Some(CameraView {
+                        camera_name: name,
+                        poses: s.poses.clone(),
+                    })
+                })
+                .collect();
+
             let users = {
                 let cameras_guard = cameras.read();
                 group_poses_and_cameras_by_user_impl(&current, &cameras_guard, 1)
@@ -308,6 +334,12 @@ impl Triangulator {
                     continue;
                 }
             };
+
+            let mut labeled_poses = LabeledPoses3D {
+                group_name: group_name.clone(),
+                poses: vec![],
+                time: Instant::now(),
+            };
             for (poses_2d, camera_matrices) in users {
                 let n_views = camera_matrices.len();
                 if n_views >= config.min_cameras {
@@ -318,11 +350,7 @@ impl Triangulator {
                                 group_name,
                                 n_views
                             );
-                            let _ = poses3d_tx.send(LabeledPoses3D {
-                                group_name: group_name.clone(),
-                                poses: vec![pose3d],
-                                time: Instant::now(),
-                            });
+                            labeled_poses.poses.push(pose3d);
                         }
                         Err(e) => {
                             log::warn!(
@@ -340,13 +368,16 @@ impl Triangulator {
                         config.min_cameras,
                         n_views
                     );
-                    let _ = poses3d_tx.send(LabeledPoses3D {
-                        group_name: group_name.clone(),
-                        poses: vec![],
-                        time: Instant::now(),
-                    });
                 }
             }
+
+            if !current.is_empty() {
+                let _ = stream_tx.send(PoseStreamUpdate {
+                    labeled_poses,
+                    camera_views,
+                });
+            }
+
             sleep(config.poll_interval).await;
         }
     }

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
-use posenet_vr_hub::triangulator::LabeledPoses3D;
+use posenet_vr_hub::triangulator::{LabeledPoses3D, PoseStreamUpdate};
 use serde::Deserialize;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -34,7 +34,7 @@ struct Frame {
 
 async fn pose_playback(
     input_path: &Path,
-    poses_tx: broadcast::Sender<LabeledPoses3D>,
+    poses_tx: broadcast::Sender<PoseStreamUpdate>,
     group_name: &str,
 ) -> anyhow::Result<()> {
     let input_file = File::open(input_path).await?;
@@ -50,15 +50,16 @@ async fn pose_playback(
     // Repeat frames forever
     loop {
         for frame in &frames {
-            // Construct poses
-            let poses = LabeledPoses3D {
+            let labeled_poses = LabeledPoses3D {
                 group_name: group_name.to_string(),
                 poses: vec![frame.bones.clone()],
                 time: Instant::now(),
             };
-
-            // Send to VRPN server
-            poses_tx.send(poses)?;
+            let update = PoseStreamUpdate {
+                labeled_poses,
+                camera_views: vec![],
+            };
+            poses_tx.send(update)?;
             println!("sent frame {}", frame.frame);
             // TODO: Make framerate adjustable
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -76,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
     println!("VRPN playback start");
 
     // Create communication channels
-    let (poses3d_bcast_tx, poses3d_bcast_rx) = broadcast::channel::<LabeledPoses3D>(100);
+    let (poses3d_bcast_tx, poses3d_bcast_rx) = broadcast::channel::<PoseStreamUpdate>(100);
 
     // Create VRPN server
     let vrpn_config = VrpnConfig::new(&opts.device_name, &opts.ip, opts.port)?;

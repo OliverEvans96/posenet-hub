@@ -9,7 +9,7 @@ use posenet_vr_hub::controller::Controller;
 use posenet_vr_hub::grpc::proto::CameraInfo;
 use posenet_vr_hub::grpc::proto::Snapshot;
 use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer};
-use posenet_vr_hub::triangulator::{LabeledPoses3D, TriangulatorConfig};
+use posenet_vr_hub::triangulator::{PoseStreamUpdate, TriangulatorConfig};
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
 use posenet_vr_hub::websocket::{WebSocketConfig, WebSocketServer};
 
@@ -35,14 +35,14 @@ async fn main() -> anyhow::Result<()> {
 
     let (cameras_tx, cameras_rx) = unbounded_channel::<CameraInfo>();
     let (snapshots_tx, snapshots_rx) = unbounded_channel::<Snapshot>();
-    let (poses3d_bcast_tx, _) = broadcast::channel::<LabeledPoses3D>(100);
+    let (stream_bcast_tx, _) = broadcast::channel::<PoseStreamUpdate>(100);
 
     let triangulator_config = TriangulatorConfig::default();
     let controller = Controller::new(
         triangulator_config,
         cameras_rx,
         snapshots_rx,
-        poses3d_bcast_tx.clone(),
+        stream_bcast_tx.clone(),
     );
 
     let grpc_config = GrpcConfig::default();
@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
 
     // VRPN server holds C++ state that is !Send, so run it in a dedicated thread with its own runtime.
     if opts.vrpn {
-        let vrpn_rx = poses3d_bcast_tx.subscribe();
+        let vrpn_rx = stream_bcast_tx.subscribe();
         std::thread::spawn(move || {
             let rt = Runtime::new().expect("VRPN runtime");
             let mut vrpn_server = VrpnServer::new(VrpnConfig::default(), vrpn_rx);
@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
 
     let run_ws: Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> = if opts.ws {
         let ws_server =
-            WebSocketServer::new(WebSocketConfig::default(), poses3d_bcast_tx.subscribe());
+            WebSocketServer::new(WebSocketConfig::default(), stream_bcast_tx.subscribe());
         Box::pin(async move {
             match ws_server.run().await {
                 Ok(()) => Ok(()),

@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use tokio::sync::broadcast;
 
 use super::vrpn::{ffi, update_values};
-use crate::triangulator::LabeledPoses3D;
+use crate::triangulator::PoseStreamUpdate;
 
 pub struct VrpnConfig {
     device_name: String,
@@ -31,13 +31,12 @@ impl Default for VrpnConfig {
 
 pub struct VrpnServer {
     config: VrpnConfig,
-    poses3d_rx: broadcast::Receiver<LabeledPoses3D>,
-    // poses3d_rx: channel::Receiver<Option<Pose3D>>,
+    stream_rx: broadcast::Receiver<PoseStreamUpdate>,
 }
 
 impl VrpnServer {
-    pub fn new(config: VrpnConfig, poses3d_rx: broadcast::Receiver<LabeledPoses3D>) -> Self {
-        Self { config, poses3d_rx }
+    pub fn new(config: VrpnConfig, stream_rx: broadcast::Receiver<PoseStreamUpdate>) -> Self {
+        Self { config, stream_rx }
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
@@ -48,7 +47,8 @@ impl VrpnServer {
         let mut update_count: u64 = 0;
 
         loop {
-            let message = self.poses3d_rx.recv().await?;
+            let update = self.stream_rx.recv().await?;
+            let message = update.labeled_poses;
             let device_name = message.group_name.clone() + ":" + &self.config.device_name;
             let num_poses = message.poses.len();
 

@@ -9,8 +9,8 @@ use tokio::sync::RwLock;
 use tokio_tungstenite::tungstenite::Message;
 use futures_util::{SinkExt, StreamExt};
 
-use crate::grpc::proto::{Point3D, Pose3D};
-use crate::triangulator::LabeledPoses3D;
+use crate::grpc::proto::{Point2D, Point3D, Pose2D, Pose3D};
+use crate::triangulator::{CameraView, PoseStreamUpdate};
 
 /// JSON-serializable 3D point for WebSocket clients.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -29,11 +29,35 @@ pub struct Pose3DJson {
     pub score: f64,
 }
 
+/// JSON-serializable 2D point (camera view keypoint).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Point2DJson {
+    pub x: f64,
+    pub y: f64,
+    pub score: f64,
+}
+
+/// JSON-serializable 2D pose: 17 keypoints in standard order.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Pose2DJson {
+    pub keypoints: Vec<Option<Point2DJson>>,
+    pub score: f64,
+}
+
+/// Per-camera 2D view for WebSocket clients.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CameraViewJson {
+    pub camera_name: String,
+    pub poses: Vec<Pose2DJson>,
+}
+
 /// Message sent over WebSocket for each pose update.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PoseStreamMessage {
     pub group_name: String,
     pub poses: Vec<Pose3DJson>,
+    /// Per-camera 2D poses for camera view panels.
+    pub camera_views: Vec<CameraViewJson>,
     /// Unix timestamp in milliseconds when the message was sent.
     pub timestamp_ms: u64,
 }
@@ -79,10 +103,58 @@ fn pose3d_to_json(pose: &Pose3D) -> Pose3DJson {
     }
 }
 
-fn labeled_poses_to_message(labeled: &LabeledPoses3D) -> PoseStreamMessage {
+fn point2d_to_json(p: &Point2D) -> Point2DJson {
+    Point2DJson {
+        x: p.x,
+        y: p.y,
+        score: p.score,
+    }
+}
+
+fn pose2d_keypoints(pose: &Pose2D) -> [Option<&Point2D>; 17] {
+    [
+        pose.nose.as_ref(),
+        pose.left_eye.as_ref(),
+        pose.right_eye.as_ref(),
+        pose.left_ear.as_ref(),
+        pose.right_ear.as_ref(),
+        pose.left_shoulder.as_ref(),
+        pose.right_shoulder.as_ref(),
+        pose.left_elbow.as_ref(),
+        pose.right_elbow.as_ref(),
+        pose.left_wrist.as_ref(),
+        pose.right_wrist.as_ref(),
+        pose.left_hip.as_ref(),
+        pose.right_hip.as_ref(),
+        pose.left_knee.as_ref(),
+        pose.right_knee.as_ref(),
+        pose.left_ankle.as_ref(),
+        pose.right_ankle.as_ref(),
+    ]
+}
+
+fn pose2d_to_json(pose: &Pose2D) -> Pose2DJson {
+    Pose2DJson {
+        keypoints: pose2d_keypoints(pose)
+            .iter()
+            .map(|opt| opt.map(point2d_to_json))
+            .collect(),
+        score: pose.score,
+    }
+}
+
+fn camera_view_to_json(v: &CameraView) -> CameraViewJson {
+    CameraViewJson {
+        camera_name: v.camera_name.clone(),
+        poses: v.poses.iter().map(pose2d_to_json).collect(),
+    }
+}
+
+fn stream_update_to_message(update: &PoseStreamUpdate) -> PoseStreamMessage {
     PoseStreamMessage {
-        group_name: labeled.group_name.clone(),
-        poses: labeled.poses.iter().map(pose3d_to_json).collect(),
+        group_name: update.labeled_poses.group_name.clone(),
+        poses: update.labeled_poses.poses.iter().map(pose3d_to_json).collect(),
+        camera_views: update.camera_views.iter().map(camera_view_to_json).collect(),
         timestamp_ms: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -121,15 +193,15 @@ type WsSender = futures_util::stream::SplitSink<
 
 pub struct WebSocketServer {
     config: WebSocketConfig,
-    poses3d_rx: broadcast::Receiver<LabeledPoses3D>,
+    stream_rx: broadcast::Receiver<PoseStreamUpdate>,
 }
 
 impl WebSocketServer {
     pub fn new(
         config: WebSocketConfig,
-        poses3d_rx: broadcast::Receiver<LabeledPoses3D>,
+        stream_rx: broadcast::Receiver<PoseStreamUpdate>,
     ) -> Self {
-        Self { config, poses3d_rx }
+        Self { config, stream_rx }
     }
 
     /// Run the server using the given listener (for tests; use port 0 to get a random port).
@@ -181,11 +253,11 @@ impl WebSocketServer {
             }
         });
 
-        let mut poses3d_rx = self.poses3d_rx;
+        let mut stream_rx = self.stream_rx;
         let clients_for_broadcast = clients.clone();
         let broadcast_handle = tokio::spawn(async move {
-            while let Ok(labeled) = poses3d_rx.recv().await {
-                let msg = labeled_poses_to_message(&labeled);
+            while let Ok(update) = stream_rx.recv().await {
+                let msg = stream_update_to_message(&update);
                 let n_poses = msg.poses.len();
                 let json = match serde_json::to_string(&msg) {
                     Ok(s) => s,
@@ -226,15 +298,22 @@ impl WebSocketServer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grpc::proto::Point2D;
     use crate::grpc::proto::Point3D;
+    use crate::triangulator::LabeledPoses3D;
+    use std::time::Instant;
 
-    fn make_point(x: f64, y: f64, z: f64, score: f64) -> Point3D {
+    fn make_point3d(x: f64, y: f64, z: f64, score: f64) -> Point3D {
         Point3D { x, y, z, score }
+    }
+
+    fn make_point2d(x: f64, y: f64, score: f64) -> Point2D {
+        Point2D { x, y, score }
     }
 
     #[test]
     fn test_point3d_to_json() {
-        let p = make_point(1.0, 2.0, 3.0, 0.9);
+        let p = make_point3d(1.0, 2.0, 3.0, 0.9);
         let j = point3d_to_json(&p);
         assert_eq!(j.x, 1.0);
         assert_eq!(j.y, 2.0);
@@ -245,8 +324,8 @@ mod tests {
     #[test]
     fn test_pose3d_to_json_serializes() {
         let pose = Pose3D {
-            nose: Some(make_point(0.0, 0.0, 0.0, 1.0)),
-            left_eye: Some(make_point(1.0, 0.0, 0.0, 1.0)),
+            nose: Some(make_point3d(0.0, 0.0, 0.0, 1.0)),
+            left_eye: Some(make_point3d(1.0, 0.0, 0.0, 1.0)),
             right_eye: None,
             left_ear: None,
             right_ear: None,
@@ -275,17 +354,74 @@ mod tests {
     }
 
     #[test]
-    fn test_pose_stream_message_serializes() {
-        let labeled = LabeledPoses3D {
-            group_name: "test_group".to_string(),
-            poses: vec![],
-            time: std::time::Instant::now(),
+    fn test_point2d_to_json() {
+        let p = make_point2d(10.0, 20.0, 0.8);
+        let j = point2d_to_json(&p);
+        assert_eq!(j.x, 10.0);
+        assert_eq!(j.y, 20.0);
+        assert_eq!(j.score, 0.8);
+    }
+
+    #[test]
+    fn test_pose2d_to_json_serializes() {
+        let pose = Pose2D {
+            nose: Some(make_point2d(0.0, 0.0, 1.0)),
+            left_eye: Some(make_point2d(1.0, 0.0, 1.0)),
+            right_eye: None,
+            left_ear: None,
+            right_ear: None,
+            left_shoulder: None,
+            right_shoulder: None,
+            left_elbow: None,
+            right_elbow: None,
+            left_wrist: None,
+            right_wrist: None,
+            left_hip: None,
+            right_hip: None,
+            left_knee: None,
+            right_knee: None,
+            left_ankle: None,
+            right_ankle: None,
+            score: 0.9,
         };
-        let msg = labeled_poses_to_message(&labeled);
+        let j = pose2d_to_json(&pose);
+        assert_eq!(j.keypoints.len(), 17);
+        assert!(j.keypoints[0].is_some());
+        assert!(j.keypoints[1].is_some());
+        assert_eq!(j.score, 0.9);
+        let serialized = serde_json::to_string(&j).unwrap();
+        assert!(serialized.contains("\"score\""));
+    }
+
+    #[test]
+    fn test_pose_stream_message_serializes() {
+        let update = PoseStreamUpdate {
+            labeled_poses: LabeledPoses3D {
+                group_name: "test_group".to_string(),
+                poses: vec![],
+                time: Instant::now(),
+            },
+            camera_views: vec![
+                CameraView {
+                    camera_name: "cam1".to_string(),
+                    poses: vec![],
+                },
+                CameraView {
+                    camera_name: "cam2".to_string(),
+                    poses: vec![],
+                },
+            ],
+        };
+        let msg = stream_update_to_message(&update);
         assert_eq!(msg.group_name, "test_group");
         assert!(msg.poses.is_empty());
+        assert_eq!(msg.camera_views.len(), 2);
+        assert_eq!(msg.camera_views[0].camera_name, "cam1");
+        assert_eq!(msg.camera_views[1].camera_name, "cam2");
         assert!(msg.timestamp_ms > 0);
         let serialized = serde_json::to_string(&msg).unwrap();
         assert!(serialized.contains("test_group"));
+        assert!(serialized.contains("cam1"));
+        assert!(serialized.contains("cam2"));
     }
 }

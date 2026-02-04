@@ -5,7 +5,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::{sync::broadcast, try_join};
 
 use crate::grpc::proto::{CameraInfo, Snapshot};
-use crate::triangulator::{LabeledPoses3D, Triangulator, TriangulatorConfig};
+use crate::triangulator::{PoseStreamUpdate, Triangulator, TriangulatorConfig};
 
 /// Application-level error type. Use `anyhow::Result` at binary boundaries.
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -19,7 +19,7 @@ pub struct Controller {
     config: TriangulatorConfig,
     cameras_rx: UnboundedReceiver<CameraInfo>,
     snapshots_rx: UnboundedReceiver<Snapshot>,
-    poses3d_tx: broadcast::Sender<LabeledPoses3D>,
+    stream_tx: broadcast::Sender<PoseStreamUpdate>,
     triangulators: Arc<RwLock<HashMap<String, TriangulatorInfo>>>,
 }
 
@@ -28,13 +28,13 @@ impl Controller {
         config: TriangulatorConfig,
         cameras_rx: UnboundedReceiver<CameraInfo>,
         snapshots_rx: UnboundedReceiver<Snapshot>,
-        poses3d_tx: broadcast::Sender<LabeledPoses3D>,
+        stream_tx: broadcast::Sender<PoseStreamUpdate>,
     ) -> Self {
         Self {
             config,
             cameras_rx,
             snapshots_rx,
-            poses3d_tx,
+            stream_tx,
             triangulators: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -43,13 +43,13 @@ impl Controller {
         let (cameras_rx, snapshots_rx) = (self.cameras_rx, self.snapshots_rx);
         let triangulators = self.triangulators;
         let config = self.config;
-        let poses3d_tx = self.poses3d_tx;
+        let stream_tx = self.stream_tx;
         let triangulators_for_poses = triangulators.clone();
         let poses_handle = tokio::spawn(async move {
             Self::listen_for_poses(snapshots_rx, triangulators_for_poses).await
         });
         let cameras_handle = tokio::spawn(async move {
-            Self::listen_for_cameras(cameras_rx, triangulators, config, poses3d_tx).await
+            Self::listen_for_cameras(cameras_rx, triangulators, config, stream_tx).await
         });
         let (poses_res, cameras_res) =
             try_join!(poses_handle, cameras_handle).map_err(|e| Box::new(e) as BoxError)?;
@@ -101,7 +101,7 @@ impl Controller {
         mut cameras_rx: UnboundedReceiver<CameraInfo>,
         triangulators: Arc<RwLock<HashMap<String, TriangulatorInfo>>>,
         config: TriangulatorConfig,
-        poses3d_tx: broadcast::Sender<LabeledPoses3D>,
+        stream_tx: broadcast::Sender<PoseStreamUpdate>,
     ) -> Result<(), BoxError> {
         loop {
             let camera = cameras_rx.recv().await.expect("no message");
@@ -130,7 +130,7 @@ impl Controller {
                     group_name.clone(),
                     new_cameras_rx,
                     snapshots_rx,
-                    poses3d_tx.clone(),
+                    stream_tx.clone(),
                 );
                 let info = TriangulatorInfo {
                     cameras_tx,

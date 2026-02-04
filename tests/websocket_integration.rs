@@ -10,7 +10,7 @@ use tokio_tungstenite::connect_async;
 use futures_util::StreamExt;
 
 use posenet_vr_hub::grpc::proto::{Point3D, Pose3D};
-use posenet_vr_hub::triangulator::LabeledPoses3D;
+use posenet_vr_hub::triangulator::{CameraView, PoseStreamUpdate};
 use posenet_vr_hub::websocket::{WebSocketConfig, WebSocketServer};
 
 fn make_point(x: f64, y: f64, z: f64, score: f64) -> Point3D {
@@ -42,7 +42,7 @@ fn minimal_pose3d() -> Pose3D {
 
 #[tokio::test]
 async fn test_websocket_client_receives_pose_message() {
-    let (tx, rx) = broadcast::channel::<LabeledPoses3D>(10);
+    let (tx, rx) = broadcast::channel::<PoseStreamUpdate>(10);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
 
@@ -58,12 +58,18 @@ async fn test_websocket_client_receives_pose_message() {
     let ws_url = format!("ws://127.0.0.1:{}", port);
     let (mut ws_stream, _) = connect_async(ws_url).await.unwrap();
 
-    let labeled = LabeledPoses3D {
-        group_name: "integration_test_group".to_string(),
-        poses: vec![minimal_pose3d()],
-        time: Instant::now(),
+    let update = PoseStreamUpdate {
+        labeled_poses: posenet_vr_hub::triangulator::LabeledPoses3D {
+            group_name: "integration_test_group".to_string(),
+            poses: vec![minimal_pose3d()],
+            time: Instant::now(),
+        },
+        camera_views: vec![CameraView {
+            camera_name: "test_cam".to_string(),
+            poses: vec![],
+        }],
     };
-    let _ = tx.send(labeled);
+    let _ = tx.send(update);
 
     let msg = ws_stream.next().await.expect("expected one message");
     let msg = msg.expect("WebSocket message error");
@@ -75,6 +81,12 @@ async fn test_websocket_client_receives_pose_message() {
     );
     assert!(parsed["poses"].is_array());
     assert_eq!(parsed["poses"].as_array().unwrap().len(), 1);
+    assert!(parsed["camera_views"].is_array());
+    assert_eq!(parsed["camera_views"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        parsed["camera_views"][0]["camera_name"].as_str().unwrap(),
+        "test_cam"
+    );
     assert!(parsed["timestamp_ms"].as_u64().is_some());
 
     server_handle.abort();
