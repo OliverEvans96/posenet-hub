@@ -11,17 +11,27 @@ import { getVisibleEdges } from './poseSkeleton.js';
 const BONE_COLOR = 0x00ccff;
 const JOINT_COLOR = 0xff6600;
 const JOINT_RADIUS = 0.02;
+const JOINT_PICK_RADIUS = 0.12;
 const BONE_RADIUS = 0.008;
 
 const GRID_SIZE = 2;
 const GRID_DIVISIONS = 20;
 const AXES_SIZE = 0.8;
 
+const FRUSTUM_COLOR = 0x9e6a03;
+const FRUSTUM_HIGHLIGHT_COLOR = 0x58a6ff;
+const PICK_SPHERE_RADIUS = 0.025;
+const JOINT_HIGHLIGHT_COLOR = 0x58a6ff;
+
 /**
  * @param {HTMLDivElement} container
- * @returns {{ update: (msg: import('./poseMessage.js').PoseStreamMessage) => void, dispose: () => void }}
+ * @param {{ onCameraClick?: (cameraName: string | null) => void, onKeypointClick?: (keypointIndex: number | null) => void }} [options]
+ * @returns {{ update: (msg: import('./poseMessage.js').PoseStreamMessage) => void, setHighlight: (cameraName: string | null) => void, setKeypointHighlight: (keypointIndex: number | null) => void, dispose: () => void, render: () => void }}
  */
-export function createPoseScene(container) {
+export function createPoseScene(container, options = {}) {
+  const { onCameraClick, onKeypointClick } = options;
+  const raycaster = new THREE.Raycaster();
+  const mouse = new THREE.Vector2();
   const width = container.clientWidth;
   const height = container.clientHeight;
   const scene = new THREE.Scene();
@@ -29,8 +39,11 @@ export function createPoseScene(container) {
 
   const camera = new THREE.PerspectiveCamera(50, width / height, 0.01, 100);
   camera.up.set(0, 0, 1); // Z up
-  camera.position.set(1.5, 1, 1.5);
-  camera.lookAt(0, 0, 0.5);
+  // ~3m from target (0,0,1): direction (1,1,1).normalize() * 3
+  const dist = 3;
+  const dir = new THREE.Vector3(1, 0.5, 0.5).normalize().multiplyScalar(dist);
+  camera.position.set(0, 0, 1).add(dir);
+  camera.lookAt(0, 0, 1);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(width, height);
@@ -40,7 +53,7 @@ export function createPoseScene(container) {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
-  controls.target.set(0, 0, 0.5);
+  controls.target.set(0, 0, 1);
   controls.minDistance = 0.2;
   controls.maxDistance = 20;
 
@@ -60,20 +73,32 @@ export function createPoseScene(container) {
 
   /** @type {THREE.Mesh[]} */
   const jointMeshes = [];
+  /** @type {THREE.Mesh[]} - larger spheres for raycast picking */
+  const jointPickSpheres = [];
   /** @type {THREE.Mesh[]} */
   const boneMeshes = [];
   /** @type {THREE.Object3D[]} */
   const cameraObjects = [];
+  /** @type {{ name: string, line: THREE.LineSegments, sphere: THREE.Mesh }[]} */
+  const cameraEntries = [];
 
   // Pose data is already Z-up (e.g. fake_poses/running_pose.csv: z ≈ 0.5–4.2 vertical).
   // Viewer is Z-up and grid in XY, so use (x, y, z) directly.
-  function addJoint(x, y, z) {
+  function addJoint(x, y, z, keypointIndex) {
     const geo = new THREE.SphereGeometry(JOINT_RADIUS, 12, 12);
     const mat = new THREE.MeshBasicMaterial({ color: JOINT_COLOR });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.position.set(x, y, z);
+    mesh.userData.keypointIndex = keypointIndex;
     group.add(mesh);
     jointMeshes.push(mesh);
+    const pickGeo = new THREE.SphereGeometry(JOINT_PICK_RADIUS, 8, 8);
+    const pickMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+    const pickMesh = new THREE.Mesh(pickGeo, pickMat);
+    pickMesh.position.set(x, y, z);
+    pickMesh.userData.keypointIndex = keypointIndex;
+    group.add(pickMesh);
+    jointPickSpheres.push(pickMesh);
   }
 
   function addBone(ax, ay, az, bx, by, bz) {
@@ -94,6 +119,12 @@ export function createPoseScene(container) {
       group.remove(m);
     });
     jointMeshes.length = 0;
+    jointPickSpheres.forEach((m) => {
+      m.geometry.dispose();
+      if (m.material.dispose) m.material.dispose();
+      group.remove(m);
+    });
+    jointPickSpheres.length = 0;
     boneMeshes.forEach((m) => {
       m.geometry.dispose();
       if (m.material.dispose) m.material.dispose();
@@ -109,9 +140,58 @@ export function createPoseScene(container) {
       cameraGroup.remove(o);
     });
     cameraObjects.length = 0;
+    cameraEntries.length = 0;
   }
 
+  function setHighlight(cameraName) {
+    cameraEntries.forEach(({ name, line, sphere }) => {
+      const highlight = name === cameraName;
+      line.material.color.setHex(highlight ? FRUSTUM_HIGHLIGHT_COLOR : FRUSTUM_COLOR);
+      sphere.material.color.setHex(highlight ? FRUSTUM_HIGHLIGHT_COLOR : FRUSTUM_COLOR);
+    });
+  }
+
+  function onPointerMove(event) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  function onPointerDown(event) {
+    if (event.button !== 0) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const cameraPickables = cameraGroup.children.filter((o) => o.userData.cameraName != null);
+    const cameraHits = raycaster.intersectObjects(cameraPickables);
+    if (cameraHits.length > 0) {
+      const name = cameraHits[0].object.userData.cameraName;
+      event.stopPropagation();
+      event.preventDefault();
+      if (name != null && onCameraClick) onCameraClick(name);
+      return;
+    }
+    let jointHits = raycaster.intersectObjects(jointPickSpheres);
+    if (jointHits.length === 0 && jointMeshes.length > 0) {
+      jointHits = raycaster.intersectObjects(jointMeshes);
+    }
+    if (jointHits.length > 0) {
+      const idx = jointHits[0].object.userData.keypointIndex;
+      event.stopPropagation();
+      event.preventDefault();
+      if (typeof idx === 'number' && onKeypointClick) onKeypointClick(idx);
+      return;
+    }
+    if (onCameraClick) onCameraClick(null);
+    if (onKeypointClick) onKeypointClick(null);
+  }
+
+  renderer.domElement.addEventListener('pointermove', onPointerMove);
+  renderer.domElement.addEventListener('pointerdown', onPointerDown, true);
+
   function addCameraModel(cam) {
+    const cameraName = typeof cam.camera_name === 'string' ? cam.camera_name : '';
     const pos = new THREE.Vector3(cam.position.x, cam.position.y, cam.position.z);
     const right = new THREE.Vector3(cam.right.x, cam.right.y, cam.right.z).normalize();
     const up = new THREE.Vector3(cam.up.x, cam.up.y, cam.up.z).normalize();
@@ -146,15 +226,27 @@ export function createPoseScene(container) {
       c1, c2, c2, c3, c3, c4, c4, c1,     // rectangle
     ];
     const geo = new THREE.BufferGeometry().setFromPoints(points);
-    const mat = new THREE.LineBasicMaterial({ color: 0x9e6a03, linewidth: 2 });
+    const mat = new THREE.LineBasicMaterial({ color: FRUSTUM_COLOR, linewidth: 2 });
     const line = new THREE.LineSegments(geo, mat);
+    line.userData.cameraName = cameraName;
     cameraGroup.add(line);
     cameraObjects.push(line);
 
     const axes = new THREE.AxesHelper(0.12);
     axes.position.copy(pos);
+    axes.userData.cameraName = cameraName;
     cameraGroup.add(axes);
     cameraObjects.push(axes);
+
+    const sphereGeo = new THREE.SphereGeometry(PICK_SPHERE_RADIUS, 12, 12);
+    const sphereMat = new THREE.MeshBasicMaterial({ color: FRUSTUM_COLOR });
+    const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+    sphere.position.copy(pos);
+    sphere.userData.cameraName = cameraName;
+    cameraGroup.add(sphere);
+    cameraObjects.push(sphere);
+
+    cameraEntries.push({ name: cameraName, line, sphere });
   }
 
   function update(msg) {
@@ -174,9 +266,17 @@ export function createPoseScene(container) {
       const pb = keypoints[b];
       if (pa && pb) addBone(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z);
     }
-    for (const p of keypoints) {
-      if (p) addJoint(p.x, p.y, p.z);
+    for (let i = 0; i < keypoints.length; i++) {
+      const p = keypoints[i];
+      if (p) addJoint(p.x, p.y, p.z, i);
     }
+  }
+
+  function setKeypointHighlight(keypointIndex) {
+    jointMeshes.forEach((mesh) => {
+      const highlight = mesh.userData.keypointIndex === keypointIndex;
+      mesh.material.color.setHex(highlight ? JOINT_HIGHLIGHT_COLOR : JOINT_COLOR);
+    });
   }
 
   function onResize() {
@@ -191,8 +291,12 @@ export function createPoseScene(container) {
 
   return {
     update,
+    setHighlight,
+    setKeypointHighlight,
     dispose: () => {
       window.removeEventListener('resize', onResize);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       controls.dispose();
       clearPoses();
       clearCameras();

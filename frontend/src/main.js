@@ -6,6 +6,7 @@ import { createPoseStreamClient } from './websocketClient.js';
 import { createAdminApi, AdminMethods } from './adminApi.js';
 import { createPoseScene } from './scene.js';
 import { createCameraViews } from './cameraViews.js';
+import { KEYPOINT_NAMES } from './poseMessage.js';
 
 const wsUrl = getWsUrl();
 const connectionStatus = document.getElementById('connection-status');
@@ -17,8 +18,54 @@ const timestampEl = document.getElementById('timestamp');
 const messageRateEl = document.getElementById('message-rate');
 const canvasContainer = document.getElementById('canvas-container');
 const cameraViewsContainer = document.getElementById('camera-views-container');
+const cameraStatusEl = document.getElementById('camera-status');
 
 const OUT_CONTROL_ID = 'out-control';
+
+let selectedCameraName = null;
+let selectedKeypointIndex = null;
+
+function updateStatusText() {
+  if (!cameraStatusEl) return;
+  if (selectedKeypointIndex != null && selectedKeypointIndex >= 0 && selectedKeypointIndex < KEYPOINT_NAMES.length) {
+    cameraStatusEl.textContent = KEYPOINT_NAMES[selectedKeypointIndex];
+  } else if (selectedCameraName) {
+    cameraStatusEl.textContent = selectedCameraName;
+  } else {
+    cameraStatusEl.textContent = '—';
+  }
+}
+
+let scene;
+let cameraViews;
+
+function selectCamera(cameraName) {
+  selectedCameraName = cameraName ?? null;
+  selectedKeypointIndex = null;
+  updateStatusText();
+  if (scene) {
+    scene.setHighlight(selectedCameraName);
+    scene.setKeypointHighlight(null);
+  }
+  if (cameraViews) {
+    cameraViews.setHighlight(selectedCameraName);
+    cameraViews.setKeypointHighlight(null);
+  }
+}
+
+function selectKeypoint(keypointIndex) {
+  selectedKeypointIndex = keypointIndex ?? null;
+  selectedCameraName = null;
+  updateStatusText();
+  if (scene) {
+    scene.setHighlight(null);
+    scene.setKeypointHighlight(selectedKeypointIndex);
+  }
+  if (cameraViews) {
+    cameraViews.setHighlight(null);
+    cameraViews.setKeypointHighlight(selectedKeypointIndex);
+  }
+}
 
 let lastMessageTime = 0;
 const rateWindow = [];
@@ -35,6 +82,10 @@ function getWsUrl() {
 let selectedGroupFilter = '';
 
 let adminResponseHandler = null;
+
+scene = createPoseScene(canvasContainer, { onCameraClick: selectCamera, onKeypointClick: selectKeypoint });
+cameraViews = createCameraViews(cameraViewsContainer, { onViewClick: selectCamera, onKeypointClick: selectKeypoint });
+
 const client = createPoseStreamClient(wsUrl, {
   onPoseMessage(msg) {
     lastMessageTime = Date.now();
@@ -42,7 +93,11 @@ const client = createPoseStreamClient(wsUrl, {
     while (rateWindow.length > 0 && lastMessageTime - rateWindow[0] > RATE_WINDOW_MS) rateWindow.shift();
     if (selectedGroupFilter !== '' && msg.group_name !== selectedGroupFilter) return;
     scene.update(msg);
+    scene.setKeypointHighlight(selectedKeypointIndex);
+    scene.setHighlight(selectedCameraName);
     cameraViews.update(msg.camera_views ?? []);
+    cameraViews.setKeypointHighlight(selectedKeypointIndex);
+    cameraViews.setHighlight(selectedCameraName);
     updateInfo(msg);
   },
   onRawMessage(raw) {
@@ -54,9 +109,6 @@ const adminApi = createAdminApi(
   (msg) => client.send(msg),
   (handler) => { adminResponseHandler = handler; }
 );
-
-const scene = createPoseScene(canvasContainer);
-const cameraViews = createCameraViews(cameraViewsContainer);
 
 function updateInfo(msg) {
   groupNameEl.textContent = msg.group_name || '—';

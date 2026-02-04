@@ -294,6 +294,12 @@ main.main-content {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  cursor: pointer;
+}
+
+.camera-view-panel-highlight {
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.4);
 }
 
 .camera-view-title {
@@ -309,4 +315,18 @@ main.main-content {
   width: 320px;
   height: 240px;
   background: #0d1117;
+}
+
+.camera-status {
+  position: fixed;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8125rem;
+  color: #8b949e;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 10;
 }
