@@ -1,5 +1,5 @@
-use std::convert::TryInto;
 use cxx::UniquePtr;
+use std::convert::TryInto;
 
 use crate::errors::MissingField;
 use crate::grpc::proto::Pose3D;

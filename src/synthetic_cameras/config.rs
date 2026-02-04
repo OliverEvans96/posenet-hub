@@ -35,7 +35,9 @@ fn default_rotation_speed() -> f64 {
 }
 
 impl SyntheticCamerasConfig {
-    pub fn load_from_path(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub fn load_from_path(
+        path: &std::path::Path,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s = std::fs::read_to_string(path)?;
         let config: Self = serde_yaml::from_str(&s)?;
         Ok(config)

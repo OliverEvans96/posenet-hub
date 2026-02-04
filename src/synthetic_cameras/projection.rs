@@ -1,11 +1,10 @@
 //! Project 3D poses to 2D for each synthetic camera.
 
-use nalgebra::{Point2, Point3};
 use std::convert::TryInto;
 
 use crate::errors::CalculationError;
-use crate::grpc::proto::{CalibrationParameters, Point2D, Pose2D, Pose3D};
 use crate::errors::OpenMvgError;
+use crate::grpc::proto::{CalibrationParameters, Point2D, Pose2D, Pose3D};
 use crate::openmvg::openmvg::get_projection;
 use crate::triangulator::calculate_camera_matrix;
 
@@ -15,7 +14,8 @@ pub fn project_pose3d_to_pose2d(
     calibration: &CalibrationParameters,
 ) -> Result<Pose2D, CalculationError> {
     let p = calculate_camera_matrix(calibration)?;
-    let (points3d, score): (Vec<_>, f64) = pose3d.clone().try_into().map_err(CalculationError::from)?;
+    let (points3d, score): (Vec<_>, f64) =
+        pose3d.clone().try_into().map_err(CalculationError::from)?;
     let mut points2d = Vec::with_capacity(17);
     for (pt, _s) in &points3d {
         let x2d = get_projection(*pt, p).map_err(projection_error_to_calculation)?;

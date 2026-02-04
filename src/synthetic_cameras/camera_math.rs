@@ -3,7 +3,7 @@
 use nalgebra::{Matrix3, Matrix3x4, Point3, Rotation3, Vector3};
 use serde::Deserialize;
 
-use crate::grpc::proto::{CameraExtrinsics, CameraIntrinsics, CalibrationParameters};
+use crate::grpc::proto::{CalibrationParameters, CameraExtrinsics, CameraIntrinsics};
 
 /// Default focal length and principal point for synthetic pinhole cameras.
 const DEFAULT_FX: f64 = 500.0;
@@ -40,11 +40,7 @@ pub fn view_matrix_from_position_look_at(
     };
     // Use forward.cross(right) so that det[R] = +1 (right-handed camera frame).
     let up = forward.cross(&right).normalize();
-    let r = Rotation3::from_matrix(&Matrix3::from_columns(&[
-        right,
-        up,
-        forward,
-    ]));
+    let r = Rotation3::from_matrix(&Matrix3::from_columns(&[right, up, forward]));
     crate::openmvg::openmvg::create_camera_matrix(position, r)
 }
 
@@ -68,11 +64,7 @@ pub fn calibration_from_view_and_intrinsics(
     cy: f64,
 ) -> CalibrationParameters {
     let intrinsics = CameraIntrinsics {
-        camera_matrix: vec![
-            fx, 0.0, cx,
-            0.0, fy, cy,
-            0.0, 0.0, 1.0,
-        ],
+        camera_matrix: vec![fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0],
         distortion: vec![0.0, 0.0, 0.0, 0.0, 0.0],
         rms_error: 0.0,
     };
@@ -156,9 +148,7 @@ mod tests {
     #[test]
     fn matrix3x4_to_view_matrix_vec_row_major() {
         let p = Matrix3x4::new(
-            1.0, 2.0, 3.0, 4.0,
-            5.0, 6.0, 7.0, 8.0,
-            9.0, 10.0, 11.0, 12.0,
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
         );
         let v = matrix3x4_to_view_matrix_vec(&p);
         assert_eq!(v[0], 1.0);

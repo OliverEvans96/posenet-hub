@@ -137,10 +137,23 @@ impl From<(Vec<SPoint3>, f64)> for Pose3D {
 // Pose keypoint names for error messages
 /// Keypoint names in the same order as Pose2D/Pose3D fields.
 pub const POSE_KEYPOINTS: [&str; 17] = [
-    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
-    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-    "left_wrist", "right_wrist", "left_hip", "right_hip",
-    "left_knee", "right_knee", "left_ankle", "right_ankle",
+    "nose",
+    "left_eye",
+    "right_eye",
+    "left_ear",
+    "right_ear",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
+    "left_hip",
+    "right_hip",
+    "left_knee",
+    "right_knee",
+    "left_ankle",
+    "right_ankle",
 ];
 
 fn pose2d_to_spoints(pose: &Pose2D) -> Result<(Vec<SPoint2>, f64), MissingField> {
@@ -165,8 +178,7 @@ fn pose2d_to_spoints(pose: &Pose2D) -> Result<(Vec<SPoint2>, f64), MissingField>
     ];
     let mut out = Vec::with_capacity(17);
     for (i, opt) in opts.iter().enumerate() {
-        let p = opt
-            .ok_or_else(|| MissingField::Keypoint(POSE_KEYPOINTS[i].to_string()))?;
+        let p = opt.ok_or_else(|| MissingField::Keypoint(POSE_KEYPOINTS[i].to_string()))?;
         out.push(p.clone().into());
     }
     Ok((out, pose.score))
@@ -194,8 +206,7 @@ fn pose3d_to_spoints(pose: &Pose3D) -> Result<(Vec<SPoint3>, f64), MissingField>
     ];
     let mut out = Vec::with_capacity(17);
     for (i, opt) in opts.iter().enumerate() {
-        let p = opt
-            .ok_or_else(|| MissingField::Keypoint(POSE_KEYPOINTS[i].to_string()))?;
+        let p = opt.ok_or_else(|| MissingField::Keypoint(POSE_KEYPOINTS[i].to_string()))?;
         out.push(p.clone().into());
     }
     Ok((out, pose.score))

@@ -3,7 +3,6 @@ use std::net::SocketAddr;
 use tokio::sync::broadcast;
 
 use super::vrpn::{ffi, update_values};
-use crate::errors::MissingField;
 use crate::triangulator::LabeledPoses3D;
 
 pub struct VrpnConfig {

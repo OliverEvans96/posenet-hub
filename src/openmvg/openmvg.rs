@@ -95,15 +95,9 @@ pub fn ceres_bundle_adjustment(
         ffi::ceres_bundle_adjustment(&xse, &mut kse, &mut tse, &mut rse, &mut x3de, opts.into());
 
     if result {
-        let ksn = kse
-            .to_nalgebra()
-            .ok_or(OpenMvgError::FfiConversionFailed)?;
-        let tsn = tse
-            .to_nalgebra()
-            .ok_or(OpenMvgError::FfiConversionFailed)?;
-        let rsn = rse
-            .to_nalgebra()
-            .ok_or(OpenMvgError::FfiConversionFailed)?;
+        let ksn = kse.to_nalgebra().ok_or(OpenMvgError::FfiConversionFailed)?;
+        let tsn = tse.to_nalgebra().ok_or(OpenMvgError::FfiConversionFailed)?;
+        let rsn = rse.to_nalgebra().ok_or(OpenMvgError::FfiConversionFailed)?;
         let x3dn = x3de
             .to_nalgebra()
             .ok_or(OpenMvgError::FfiConversionFailed)?;
@@ -144,8 +138,7 @@ pub fn triangulate(
     let x3d_h = x3d_h_eig
         .to_nalgebra()
         .ok_or(OpenMvgError::FfiConversionFailed)?;
-    let x3d = Point3::from_homogeneous(x3d_h.into())
-        .ok_or(OpenMvgError::NonHomogeneousPoint)?;
+    let x3d = Point3::from_homogeneous(x3d_h.into()).ok_or(OpenMvgError::NonHomogeneousPoint)?;
 
     Ok(x3d)
 }
@@ -181,10 +174,7 @@ pub fn create_camera_matrix(center: Point3<f64>, rotation: Rotation3<f64>) -> Ma
 }
 
 /// Project a single 3D point onto a single camera
-pub fn get_projection(
-    x3d: Point3<f64>,
-    p: Matrix3x4<f64>,
-) -> Result<Point2<f64>, OpenMvgError> {
+pub fn get_projection(x3d: Point3<f64>, p: Matrix3x4<f64>) -> Result<Point2<f64>, OpenMvgError> {
     let x3d_h = x3d.to_homogeneous();
     let x2d_h = p * x3d_h;
     Point2::<f64>::from_homogeneous(x2d_h).ok_or(OpenMvgError::NonHomogeneousPoint)
@@ -222,8 +212,7 @@ mod tests {
             camera_poses.push(camera_pose);
         }
 
-        let x3d: Point3<f64> =
-            triangulate(points2d.as_slice(), camera_poses.as_slice()).unwrap();
+        let x3d: Point3<f64> = triangulate(points2d.as_slice(), camera_poses.as_slice()).unwrap();
         println!("RAND x3d = {}", x3d);
     }
 

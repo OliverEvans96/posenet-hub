@@ -12,9 +12,9 @@ use tonic::Request;
 
 use posenet_vr_hub::grpc::proto::hub_service_client::HubServiceClient;
 use posenet_vr_hub::grpc::proto::{
-    camera_control_command, camera_message, command_response, CameraControlCommand,
-    CameraIdentifier, CameraInfo, CameraMessage, CalibrationParameters, CommandResponse,
-    CommandToken, Snapshot, SessionToken,
+    camera_control_command, camera_message, command_response, CalibrationParameters,
+    CameraIdentifier, CameraInfo, CameraMessage, CommandResponse, CommandToken, SessionToken,
+    Snapshot,
 };
 use posenet_vr_hub::synthetic_cameras::{
     load_pose_csv, points_to_pose3d, project_pose3d_to_pose2d, rotate_pose_around,
@@ -64,10 +64,7 @@ async fn run_camera_control_listener(
             let command_token = token.clone();
             let mut data_sink_client = client.clone();
             let which_cam = which_camera.clone();
-            let rx = std::mem::replace(
-                &mut snapshot_rx,
-                mpsc::unbounded_channel().1,
-            );
+            let rx = std::mem::replace(&mut snapshot_rx, mpsc::unbounded_channel().1);
             tokio::spawn(async move {
                 if let Err(e) =
                     run_camera_data_sink(&mut data_sink_client, command_token, which_cam, rx).await
@@ -83,7 +80,7 @@ async fn run_camera_control_listener(
 async fn run_camera_data_sink(
     client: &mut HubServiceClient<Channel>,
     command_token: CommandToken,
-    which_camera: CameraIdentifier,
+    _which_camera: CameraIdentifier,
     mut snapshot_rx: mpsc::UnboundedReceiver<Snapshot>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let token_msg = CameraMessage {
@@ -120,18 +117,14 @@ async fn main() -> anyhow::Result<()> {
         std::env::current_dir()?.join(&config.pose_csv_path)
     };
     let mut points = load_pose_csv(&pose_path)?;
-    let pose_center = points.iter().fold(
-        nalgebra::Point3::new(0.0, 0.0, 0.0),
-        |acc, p| {
+    let pose_center = points
+        .iter()
+        .fold(nalgebra::Point3::new(0.0, 0.0, 0.0), |acc, p| {
             nalgebra::Point3::new(acc.x + p.x, acc.y + p.y, acc.z + p.z)
-        },
-    );
+        });
     let n = points.len() as f64;
-    let pose_center = nalgebra::Point3::new(
-        pose_center.x / n,
-        pose_center.y / n,
-        pose_center.z / n,
-    );
+    let pose_center =
+        nalgebra::Point3::new(pose_center.x / n, pose_center.y / n, pose_center.z / n);
 
     let hub_url = config.hub_url.clone();
     let group_name = config.group_name.clone();
@@ -165,7 +158,11 @@ async fn main() -> anyhow::Result<()> {
         let group_listener = group_name.clone();
         let cam_name_listener = camera_name.clone();
         tokio::spawn(async move {
-            let channel = Channel::from_shared(hub_url_listener).unwrap().connect().await.unwrap();
+            let channel = Channel::from_shared(hub_url_listener)
+                .unwrap()
+                .connect()
+                .await
+                .unwrap();
             let client = HubServiceClient::new(channel);
             if let Err(e) = run_camera_control_listener(
                 client,

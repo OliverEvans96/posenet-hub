@@ -8,13 +8,13 @@ use std::sync::Arc;
 use std::task::Poll;
 use std::time::{Duration, Instant, SystemTime};
 use std::{net::SocketAddr, pin::Pin};
-use uuid::Uuid;
 use thiserror::Error;
 use tokio::select;
-use tokio::sync::mpsc::Receiver;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::Receiver;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Server, Request, Response, Status};
+use uuid::Uuid;
 
 use crate::errors::{ConfigError, HubError, InvalidInput, MissingField};
 use crate::openmvg::openmvg::ceres_bundle_adjustment;
@@ -333,13 +333,15 @@ impl HubService for HubServer {
         }
         let (ctrl_tx, ctrl_rx) = mpsc::channel(32);
         self.control_channels.write().insert(token.clone(), ctrl_tx);
-        self.pending_control_rx.write().insert(token.clone(), ctrl_rx);
+        self.pending_control_rx
+            .write()
+            .insert(token.clone(), ctrl_rx);
         self.camera_info
             .write()
             .insert(which_camera.clone(), info.clone());
-        self.cameras_tx.send(info).map_err(|_| {
-            Status::internal("Camera channel was closed")
-        })?;
+        self.cameras_tx
+            .send(info)
+            .map_err(|_| Status::internal("Camera channel was closed"))?;
 
         Ok(Response::new(token))
     }
@@ -353,9 +355,7 @@ impl HubService for HubServer {
             .pending_control_rx
             .write()
             .remove(&token)
-            .ok_or_else(|| {
-                Status::failed_precondition("Unknown or already used session token")
-            })?;
+            .ok_or_else(|| Status::failed_precondition("Unknown or already used session token"))?;
         let (wrap_tx, wrap_rx) = mpsc::channel(32);
         tokio::spawn(async move {
             while let Some(cmd) = rx.recv().await {
@@ -481,12 +481,14 @@ impl HubService for HubServer {
                     .execute_command(which_camera, command)
                     .await
                     .map_err(|e| Status::internal(e.to_string()))?;
-                self.stream_state.write().insert(group_name.clone(), params.clone());
+                self.stream_state
+                    .write()
+                    .insert(group_name.clone(), params.clone());
                 let execution_results = join_all(execution_futures).await;
                 let stream_cache = self.stream_cache.clone();
                 let snapshots_tx = self.snapshots_tx.clone();
                 let stream_state = self.stream_state.clone();
-                for (camera, stream) in execution_results {
+                for (_camera, stream) in execution_results {
                     let group_name = group_name.clone();
                     let stream_cache = stream_cache.clone();
                     let snapshots_tx = snapshots_tx.clone();
@@ -536,7 +538,9 @@ impl HubService for HubServer {
                     params: None,
                 }))
             }
-            None => Err(Status::invalid_argument("StreamControlRequest requires command")),
+            None => Err(Status::invalid_argument(
+                "StreamControlRequest requires command",
+            )),
         }
     }
 
@@ -559,7 +563,7 @@ impl HubService for HubServer {
         let execution_results = join_all(execution_futures).await;
         let timeout = Duration::from_secs(5);
         let mut snapshots = Vec::new();
-        for (_camera, mut stream) in execution_results {
+        for (_camera, stream) in execution_results {
             pin_mut!(stream);
             let first = tokio::time::timeout(timeout, stream.next()).await;
             if let Ok(Some(response)) = first {
@@ -585,8 +589,10 @@ impl HubService for HubServer {
                     .filter_map(|cal| crate::triangulator::calculate_camera_matrix(cal).ok())
                     .collect();
                 if matrices.len() == snapshots.len() {
-                    crate::triangulator::triangulate_from_poses_and_camera_matrices(poses, &matrices)
-                        .ok()
+                    crate::triangulator::triangulate_from_poses_and_camera_matrices(
+                        poses, &matrices,
+                    )
+                    .ok()
                 } else {
                     None
                 }
@@ -625,7 +631,9 @@ impl HubService for HubServer {
                 .unwrap_or_default()
         };
         if snapshots.is_empty() {
-            return Err(Status::not_found("No current snapshot in cache for requested camera(s)"));
+            return Err(Status::not_found(
+                "No current snapshot in cache for requested camera(s)",
+            ));
         }
         Ok(Response::new(ServerSnapshotResponse {
             snapshot_id: "current".to_string(),
@@ -701,11 +709,11 @@ impl HubService for HubServer {
             let num_pings = response_stream_futures.len();
             // TODO: Await responses in parallel w/ timeout
             let (ping_tx, ping_rx) = mpsc::channel(num_pings);
-            let mapped_futures: Vec<_> = response_stream_futures
+            let _mapped_futures: Vec<_> = response_stream_futures
                 .into_iter()
                 .map(|future| {
                     // Chain future
-                    future.then(|(camera, _)| async {
+                    future.then(|(_camera, _)| async {
                         // Ignore the contents of the message stream - ping only sends a single message.
                         // Once we receive the stream, then the ping has returned.
                         let receive_time = Instant::now();
@@ -714,7 +722,7 @@ impl HubService for HubServer {
                             response_time: Some(elapsed.into()),
                             which_camera: None,
                         };
-                        ping_tx.send(ping_results).await;
+                        let _ = ping_tx.send(ping_results).await;
                     })
                 })
                 .collect();
@@ -870,18 +878,21 @@ impl HubService for HubServer {
             }
             xs.push(x);
 
-            let camera = view.camera.ok_or_else(|| {
-                Status::invalid_argument("Each view must have camera data")
-            })?;
-            let calibration = camera.calibration.as_ref().ok_or_else(|| {
-                Status::invalid_argument("Camera missing calibration")
-            })?;
-            let intrinsics = calibration.intrinsics.as_ref().ok_or_else(|| {
-                Status::invalid_argument("Calibration missing intrinsics")
-            })?;
-            let extrinsics = calibration.extrinsics.as_ref().ok_or_else(|| {
-                Status::invalid_argument("Calibration missing extrinsics")
-            })?;
+            let camera = view
+                .camera
+                .ok_or_else(|| Status::invalid_argument("Each view must have camera data"))?;
+            let calibration = camera
+                .calibration
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Camera missing calibration"))?;
+            let intrinsics = calibration
+                .intrinsics
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Calibration missing intrinsics"))?;
+            let extrinsics = calibration
+                .extrinsics
+                .as_ref()
+                .ok_or_else(|| Status::invalid_argument("Calibration missing extrinsics"))?;
             let k = Matrix3::from_row_slice(&intrinsics.camera_matrix);
             let c = Matrix4::from_row_slice(&extrinsics.view_matrix);
             let cn = c.fixed_rows::<3>(0);
@@ -897,15 +908,9 @@ impl HubService for HubServer {
             orig_cameras.push(camera);
         }
 
-        let result = ceres_bundle_adjustment(
-            &xs,
-            &mut ks,
-            &mut ts,
-            &mut rs,
-            &mut x3d,
-            message.options,
-        )
-        .map_err(|e| Status::internal(e.to_string()))?;
+        let result =
+            ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d, message.options)
+                .map_err(|e| Status::internal(e.to_string()))?;
 
         if !result {
             log::error!("Bundle adjustment failed");
@@ -1181,6 +1186,7 @@ impl HubServer {
         rxs
     }
 
+    #[allow(dead_code)]
     async fn retrieve_command_responses(&self) {
         // TODO: What is this supposed to do? Probably useless.
         todo!()
@@ -1317,6 +1323,7 @@ impl<'a, T> Future for ChannelWatcher<'a, T> {
 
 // TODO: Use builtin gRPC errors?
 // Or gRPC extended error syntax?
+#[allow(dead_code)]
 #[derive(Debug)]
 enum HubServerError {
     InvalidRequest { message: String },

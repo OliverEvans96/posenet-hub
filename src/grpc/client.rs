@@ -7,8 +7,8 @@ use tokio::time::{sleep, Duration};
 use tonic::{transport::Channel, Request};
 
 use super::proto::hub_service_client::HubServiceClient;
-use super::proto::*;
 use super::proto::stream_control_request;
+use super::proto::*;
 
 fn fake_calibration() -> CalibrationParameters {
     let mut rng = thread_rng();
@@ -301,13 +301,13 @@ pub async fn stream_inner(
 }
 
 pub async fn stream_poses(
-    client: &mut HubServiceClient<Channel>,
-    group_name: String,
-    camera_name: String,
+    _client: &mut HubServiceClient<Channel>,
+    _group_name: String,
+    _camera_name: String,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let buf_size = 10;
-    let (tx, rx) = channel::<Snapshot>(buf_size);
-    let request = Request::new(rx);
+    let (_tx, rx) = channel::<Snapshot>(buf_size);
+    let _request = Request::new(rx);
     println!("Sending request");
 
     todo!();
@@ -320,8 +320,9 @@ pub async fn stream_poses(
     // Ok(())
 }
 
+#[allow(dead_code)]
 async fn handle_camera_snapshot_request(
-    client: &mut HubServiceClient<Channel>,
+    _client: &mut HubServiceClient<Channel>,
     request: CameraControlCommand,
     group_name: String,
     camera_name: String,
@@ -337,7 +338,7 @@ async fn handle_camera_snapshot_request(
     };
 
     // Construct response
-    let image_message = Snapshot {
+    let _image_message = Snapshot {
         // Need to clone strings each time we loop
         timestamp: Some(SystemTime::now().into()),
         which_camera: Some(which_camera.clone()),
@@ -353,9 +354,9 @@ async fn handle_camera_snapshot_request(
 /// to send a predefined image instead of
 /// random RGB values.
 pub async fn offer_snapshots(
-    client: &mut HubServiceClient<Channel>,
+    _client: &mut HubServiceClient<Channel>,
     group_name: String,
-    image_data: Option<Image>,
+    _image_data: Option<Image>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // TODO: More logging
     let camera_name = generate_name();
@@ -368,7 +369,7 @@ pub async fn offer_snapshots(
     let calibration = fake_calibration();
 
     // Construct offer
-    let offer = CameraInfo {
+    let _offer = CameraInfo {
         which_camera: Some(which_camera),
         calibration: Some(calibration),
     };
@@ -405,13 +406,8 @@ pub async fn get_snapshots(
     with_image: bool,
     want_pose3d: bool,
 ) -> Result<ServerSnapshotResponse, Box<dyn std::error::Error + Send + Sync>> {
-    let request = build_server_snapshot_request(
-        group_name,
-        None,
-        with_pose,
-        with_image,
-        want_pose3d,
-    );
+    let request =
+        build_server_snapshot_request(group_name, None, with_pose, with_image, want_pose3d);
     take_snapshots(client, request).await
 }
 
@@ -420,8 +416,7 @@ mod tests {
     use super::{
         build_calibration_request, build_camera_identifier, build_ping_request,
         build_server_snapshot_request, build_stream_control_start_request,
-        build_stream_control_stop_request, generate_name, stream_control_request,
-        CameraIdentifier,
+        build_stream_control_stop_request, generate_name, stream_control_request, CameraIdentifier,
     };
 
     // Test names are prefixed with "test_" to avoid shadowing the builder functions under test.
@@ -461,13 +456,7 @@ mod tests {
 
     #[test]
     fn build_server_snapshot_request_group_only() {
-        let req = build_server_snapshot_request(
-            "my_group".to_string(),
-            None,
-            true,
-            false,
-            true,
-        );
+        let req = build_server_snapshot_request("my_group".to_string(), None, true, false, true);
         assert!(req.which_camera.is_some());
         let id = req.which_camera.as_ref().unwrap();
         assert_eq!(id.group_name, "my_group");

@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -300,11 +299,19 @@ pub async fn main() -> anyhow::Result<()> {
                 offer_snapshots(&mut client, camera.group, image).await?
             }
         },
-        GrpcClientCommand::GetSnapshots { group, output, .. } => {
+        GrpcClientCommand::GetSnapshots {
+            group: _group,
+            output: _output,
+            ..
+        } => {
             todo!()
             // get_snapshots(&mut client, group, output).await?
         }
-        GrpcClientCommand::GetSnapshotCameras { group, output, .. } => {
+        GrpcClientCommand::GetSnapshotCameras {
+            group: _group,
+            output: _output,
+            ..
+        } => {
             todo!()
             // get_snapshot_cameras(&mut client, group, output).await?
         }

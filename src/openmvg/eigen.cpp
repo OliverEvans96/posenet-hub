@@ -112,7 +112,7 @@ unique_ptr<Vec2> vec2_from_data(rust::Slice<const double> slice) {
 
 template <typename T> rust::Slice<const double> mat_to_slice(const T &mat) {
     const double *data_ptr = &(mat)(0);
-    rust::Slice<const double> slice{data_ptr, mat.size()};
+    rust::Slice<const double> slice{data_ptr, static_cast<std::size_t>(mat.size())};
     return slice;
 }
 

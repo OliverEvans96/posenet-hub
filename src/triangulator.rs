@@ -164,15 +164,19 @@ impl Triangulator {
         let poses_for_tri = poses.clone();
         let cameras_for_tri = cameras.clone();
 
-        let poses_handle = tokio::spawn(async move {
-            Self::listen_for_poses(snapshots_rx, poses).await
-        });
-        let cameras_handle = tokio::spawn(async move {
-            Self::listen_for_cameras(cameras_rx, cameras).await
-        });
+        let poses_handle =
+            tokio::spawn(async move { Self::listen_for_poses(snapshots_rx, poses).await });
+        let cameras_handle =
+            tokio::spawn(async move { Self::listen_for_cameras(cameras_rx, cameras).await });
         let triangulate_handle = tokio::spawn(async move {
-            Self::triangulate_loop(config, group_name, poses_for_tri, cameras_for_tri, poses3d_tx)
-                .await
+            Self::triangulate_loop(
+                config,
+                group_name,
+                poses_for_tri,
+                cameras_for_tri,
+                poses3d_tx,
+            )
+            .await
         });
 
         let (a, b, c) = try_join!(poses_handle, cameras_handle, triangulate_handle)
@@ -241,7 +245,10 @@ impl Triangulator {
                 .map(|id| id.group_name.as_str())
                 .unwrap_or("");
             log::info!("New camera --> {}:{}", group_name, camera_name);
-            let state = CameraState { info: camera, matrix };
+            let state = CameraState {
+                info: camera,
+                matrix,
+            };
             cameras.write().insert(camera_name, state);
         }
     }
@@ -254,8 +261,7 @@ impl Triangulator {
         poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     ) -> Result<(), BoxError> {
         loop {
-            let current =
-                get_current_snapshot_impl(&config, &*poses.read(), SystemTime::now());
+            let current = get_current_snapshot_impl(&config, &*poses.read(), SystemTime::now());
             let users = {
                 let cameras_guard = cameras.read();
                 group_poses_and_cameras_by_user_impl(&current, &cameras_guard, 1)
@@ -294,10 +300,12 @@ impl Triangulator {
         }
     }
 
+    #[allow(dead_code)]
     fn get_pose_for_user(&self, pose: &Snapshot, user_id: usize) -> Option<Pose2D> {
         get_pose_for_user_impl(pose, user_id)
     }
 
+    #[allow(dead_code)]
     fn group_poses_and_cameras_by_user(
         &self,
         snapshots: Vec<Snapshot>,
@@ -306,12 +314,14 @@ impl Triangulator {
         group_poses_and_cameras_by_user_impl(&snapshots, &cameras_guard, 1)
     }
 
+    #[allow(dead_code)]
     fn get_camera_matrix(&self, name: &str) -> Option<Matrix3x4<f64>> {
         let hm = self.cameras.read();
         let camera = hm.get(name)?;
         Some(camera.matrix)
     }
 
+    #[allow(dead_code)]
     fn get_cameras_for_snapshots(
         &self,
         snapshots: &[Snapshot],
@@ -330,7 +340,8 @@ fn get_current_snapshot_impl(
         .values()
         .filter_map(|snapshot| {
             let timestamp = snapshot.timestamp.as_ref()?;
-            let snapshot_time = std::convert::TryInto::<SystemTime>::try_into(timestamp.clone()).ok()?;
+            let snapshot_time =
+                std::convert::TryInto::<SystemTime>::try_into(timestamp.clone()).ok()?;
             let age = now.duration_since(snapshot_time).ok()?;
             if age < config.pose_expiration {
                 Some(snapshot.clone())
@@ -391,9 +402,7 @@ pub fn group_poses_and_cameras_by_user_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grpc::proto::{
-        CameraExtrinsics, CameraIdentifier, CameraIntrinsics, Point2D,
-    };
+    use crate::grpc::proto::{CameraExtrinsics, CameraIdentifier, CameraIntrinsics, Point2D};
     use crate::openmvg::openmvg::{create_camera_matrix, get_projection};
     use nalgebra::{Point3, Rotation3};
     use prost_types::Timestamp;
@@ -409,9 +418,7 @@ mod tests {
     fn make_calibration_identity_like() -> crate::grpc::proto::CalibrationParameters {
         // 3x3 identity-like intrinsics, 3x4 view matrix (first 3x3 R, then column t)
         let camera_matrix = vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
-        let view_matrix = vec![
-            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
-        ];
+        let view_matrix = vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
         crate::grpc::proto::CalibrationParameters {
             intrinsics: Some(CameraIntrinsics {
                 camera_matrix,
@@ -452,7 +459,11 @@ mod tests {
         let p2 = create_camera_matrix(c2, r2);
         let cameras = vec![p1, p2];
 
-        let x3d = Point3::new(rng.gen_range(0.1..10.0), rng.gen_range(0.1..10.0), rng.gen_range(0.1..10.0));
+        let x3d = Point3::new(
+            rng.gen_range(0.1..10.0),
+            rng.gen_range(0.1..10.0),
+            rng.gen_range(0.1..10.0),
+        );
         let pose2d_1 = get_projection(x3d, p1).unwrap();
         let pose2d_2 = get_projection(x3d, p2).unwrap();
 
@@ -652,14 +663,12 @@ mod tests {
             },
         );
         let pose = rand::random::<Pose2D>();
-        let snapshots = vec![
-            Snapshot {
-                timestamp: None,
-                which_camera: Some(make_camera_identifier("g", "cam_a")),
-                poses: vec![pose.clone()],
-                image: None,
-            },
-        ];
+        let snapshots = vec![Snapshot {
+            timestamp: None,
+            which_camera: Some(make_camera_identifier("g", "cam_a")),
+            poses: vec![pose.clone()],
+            image: None,
+        }];
         let grouped = group_poses_and_cameras_by_user_impl(&snapshots, &cameras, 1).unwrap();
         assert_eq!(grouped.len(), 1);
         assert_eq!(grouped[0].0.len(), 1);

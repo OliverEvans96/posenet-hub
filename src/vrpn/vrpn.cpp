@@ -88,7 +88,7 @@ void mainloop(unique_ptr<PoseNetVrpnContainer> &container) {
 // Client
 // From http://www.vrgeeks.org/vrpn/tutorial---use-vrpn
 
-void VRPN_CALLBACK handle_analog(void *userData, const vrpn_ANALOGCB a) {
+void VRPN_CALLBACK handle_analog(void * /* userData */, const vrpn_ANALOGCB a) {
     cout << "Analog : ";
 
     for (int i = 0; i < a.num_channel; i++) {

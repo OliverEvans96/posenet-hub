@@ -76,9 +76,7 @@ impl Controller {
                         .expect("triangulator channel closed.");
                 }
                 None => {
-                    log::warn!(
-                        "Received a pose with an unregistered group name, discarding.."
-                    );
+                    log::warn!("Received a pose with an unregistered group name, discarding..");
                 }
             };
         }

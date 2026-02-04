@@ -7,8 +7,7 @@ use serde::Deserialize;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::join;
-use tokio::{sync::broadcast, try_join};
-use tokio_stream::StreamExt;
+use tokio::sync::broadcast;
 
 use posenet_vr_hub::grpc::proto::Pose3D;
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};

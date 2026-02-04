@@ -77,7 +77,11 @@ fn point_to_proto(p: Point3<f64>) -> crate::grpc::proto::Point3D {
 }
 
 /// Apply a rotation around the given center to a slice of 3D points (in place).
-pub fn rotate_pose_around(points: &mut [Point3<f64>], center: Point3<f64>, rotation: &Rotation3<f64>) {
+pub fn rotate_pose_around(
+    points: &mut [Point3<f64>],
+    center: Point3<f64>,
+    rotation: &Rotation3<f64>,
+) {
     for p in points.iter_mut() {
         let translated: Vector3<f64> = p.coords - center.coords;
         let rotated: Vector3<f64> = rotation * translated;
