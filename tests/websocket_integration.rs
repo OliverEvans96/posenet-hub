@@ -68,6 +68,7 @@ async fn test_websocket_client_receives_pose_message() {
             camera_name: "test_cam".to_string(),
             poses: vec![],
         }],
+        cameras: vec![],
     };
     let _ = tx.send(update);
 

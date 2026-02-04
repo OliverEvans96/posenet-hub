@@ -1,4 +1,4 @@
-use nalgebra::{Matrix3, Matrix3x4, Point2};
+use nalgebra::{Matrix3, Matrix3x4, Point2, Point3, Vector3};
 use parking_lot::RwLock;
 use std::convert::TryInto;
 use std::sync::Arc;
@@ -37,11 +37,32 @@ pub struct CameraView {
     pub poses: Vec<Pose2D>,
 }
 
+/// Minimal camera model for frontend visualization (position + orientation basis).
+#[derive(Debug, Clone)]
+pub struct CameraModel {
+    pub camera_name: String,
+    /// Intrinsics (in pixels).
+    pub fx: f64,
+    pub fy: f64,
+    pub cx: f64,
+    pub cy: f64,
+    /// Estimated image size in pixels (may be derived from principal point).
+    pub width_px: f64,
+    pub height_px: f64,
+    /// Camera center in world coordinates.
+    pub position: Point3<f64>,
+    /// Unit vectors in world coordinates describing camera orientation.
+    pub right: Vector3<f64>,
+    pub up: Vector3<f64>,
+    pub forward: Vector3<f64>,
+}
+
 /// Combined 3D poses and per-camera 2D views sent each triangulator tick.
 #[derive(Debug, Clone)]
 pub struct PoseStreamUpdate {
     pub labeled_poses: LabeledPoses3D,
     pub camera_views: Vec<CameraView>,
+    pub cameras: Vec<CameraModel>,
 }
 
 pub struct CameraState {
@@ -101,6 +122,71 @@ pub fn calculate_camera_matrix(
 
     let p = k * rt;
     Ok(p)
+}
+
+/// Build a `CameraModel` from `CameraInfo` calibration extrinsics.
+///
+/// `extrinsics.view_matrix` is treated as a 3x4 row-major matrix `[R|t]` that maps world → camera:
+/// \( x_c = R x_w + t \). Camera center is \( C = -R^T t \).
+fn camera_model_from_info(camera: &CameraInfo) -> Option<CameraModel> {
+    let which = camera.which_camera.as_ref()?;
+    let calibration = camera.calibration.as_ref()?;
+    let intrinsics = calibration.intrinsics.as_ref()?;
+    let extrinsics = calibration.extrinsics.as_ref()?;
+    let v = &extrinsics.view_matrix;
+    if v.len() < 12 {
+        return None;
+    }
+
+    // Row-major 3x4 [R|t]
+    let r00 = v[0];
+    let r01 = v[1];
+    let r02 = v[2];
+    let t0 = v[3];
+    let r10 = v[4];
+    let r11 = v[5];
+    let r12 = v[6];
+    let t1 = v[7];
+    let r20 = v[8];
+    let r21 = v[9];
+    let r22 = v[10];
+    let t2 = v[11];
+
+    let r = Matrix3::new(r00, r01, r02, r10, r11, r12, r20, r21, r22);
+    let t = Vector3::new(t0, t1, t2);
+
+    let rt = r.transpose();
+    let c = -(rt * t);
+
+    let right = (rt * Vector3::new(1.0, 0.0, 0.0)).normalize();
+    let up = (rt * Vector3::new(0.0, 1.0, 0.0)).normalize();
+    let forward = (rt * Vector3::new(0.0, 0.0, 1.0)).normalize();
+
+    let k = &intrinsics.camera_matrix;
+    if k.len() < 9 {
+        return None;
+    }
+    let fx = k[0];
+    let fy = k[4];
+    let cx = k[2];
+    let cy = k[5];
+    // If we don't know resolution, assume principal point is near the center.
+    let width_px = if cx > 0.0 { 2.0 * cx } else { 640.0 };
+    let height_px = if cy > 0.0 { 2.0 * cy } else { 480.0 };
+
+    Some(CameraModel {
+        camera_name: which.camera_name.clone(),
+        fx,
+        fy,
+        cx,
+        cy,
+        width_px,
+        height_px,
+        position: Point3::new(c.x, c.y, c.z),
+        right,
+        up,
+        forward,
+    })
 }
 
 pub fn triangulate_from_poses_and_camera_matrices(
@@ -169,7 +255,7 @@ impl Triangulator {
     pub async fn run(self) -> Result<(), BoxError> {
         let config = self.config.clone();
         let group_name = self.group_name.clone();
-        let stream_tx = self.stream_tx;
+        let stream_tx = self.stream_tx.clone();
         let cameras = self.cameras.clone();
         let poses = self.poses.clone();
         let snapshots_rx = self.snapshots_rx;
@@ -180,12 +266,21 @@ impl Triangulator {
 
         let poses_handle =
             tokio::spawn(async move { Self::listen_for_poses(snapshots_rx, poses).await });
-        let cameras_handle =
-            tokio::spawn(async move { Self::listen_for_cameras(cameras_rx, cameras).await });
+        let group_name_for_cameras = group_name.clone();
+        let stream_tx_for_cameras = stream_tx.clone();
+        let cameras_handle = tokio::spawn(async move {
+            Self::listen_for_cameras(
+                cameras_rx,
+                cameras,
+                group_name_for_cameras,
+                stream_tx_for_cameras,
+            )
+            .await
+        });
         let triangulate_handle = tokio::spawn(async move {
             Self::triangulate_loop(
                 config,
-                group_name,
+                group_name.clone(),
                 poses_for_tri,
                 cameras_for_tri,
                 stream_tx,
@@ -230,6 +325,8 @@ impl Triangulator {
     async fn listen_for_cameras(
         mut cameras_rx: UnboundedReceiver<CameraInfo>,
         cameras: Arc<RwLock<HashMap<String, CameraState>>>,
+        group_name: String,
+        stream_tx: broadcast::Sender<PoseStreamUpdate>,
     ) -> Result<(), BoxError> {
         loop {
             let camera = match cameras_rx.recv().await {
@@ -259,17 +356,35 @@ impl Triangulator {
                     continue;
                 }
             };
-            let group_name = camera
+            let group_label = camera
                 .which_camera
                 .as_ref()
                 .map(|id| id.group_name.as_str())
                 .unwrap_or("");
-            log::info!("New camera --> {}:{}", group_name, camera_name);
+            log::info!("New camera --> {}:{}", group_label, camera_name);
             let state = CameraState {
                 info: camera,
                 matrix,
             };
             cameras.write().insert(camera_name, state);
+
+            // Emit a camera-model update immediately when cameras connect.
+            let camera_models: Vec<CameraModel> = {
+                let guard = cameras.read();
+                guard
+                    .values()
+                    .filter_map(|cs| camera_model_from_info(&cs.info))
+                    .collect()
+            };
+            let _ = stream_tx.send(PoseStreamUpdate {
+                labeled_poses: LabeledPoses3D {
+                    group_name: group_name.to_string(),
+                    poses: vec![],
+                    time: Instant::now(),
+                },
+                camera_views: vec![],
+                cameras: camera_models,
+            });
         }
     }
 
@@ -294,7 +409,7 @@ impl Triangulator {
             };
             if current.is_empty() && !poses_is_empty {
                 log::debug!(
-                    "Triangulator [{}]: 0 current snapshots ({} in store) – expired or missing timestamp?",
+                    "Triangulator [{}]: 1 current snapshots ({} in store) – expired or missing timestamp?",
                     group_name,
                     poses_len
                 );
@@ -340,10 +455,10 @@ impl Triangulator {
                 poses: vec![],
                 time: Instant::now(),
             };
-            for (poses_2d, camera_matrices) in users {
+            for (poses_3d, camera_matrices) in users {
                 let n_views = camera_matrices.len();
                 if n_views >= config.min_cameras {
-                    match triangulate_from_poses_and_camera_matrices(poses_2d, &camera_matrices) {
+                    match triangulate_from_poses_and_camera_matrices(poses_3d, &camera_matrices) {
                         Ok(pose3d) => {
                             log::info!(
                                 "Triangulator [{}]: triangulated 1 pose ({} views), broadcasting",
@@ -375,6 +490,7 @@ impl Triangulator {
                 let _ = stream_tx.send(PoseStreamUpdate {
                     labeled_poses,
                     camera_views,
+                    cameras: vec![],
                 });
             }
 

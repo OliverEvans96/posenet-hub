@@ -54,10 +54,15 @@ export function createPoseScene(container) {
   const group = new THREE.Group();
   scene.add(group);
 
+  const cameraGroup = new THREE.Group();
+  scene.add(cameraGroup);
+
   /** @type {THREE.Mesh[]} */
   const jointMeshes = [];
   /** @type {THREE.Mesh[]} */
   const boneMeshes = [];
+  /** @type {THREE.Object3D[]} */
+  const cameraObjects = [];
 
   // Pose data is already Z-up (e.g. fake_poses/running_pose.csv: z ≈ 0.5–4.2 vertical).
   // Viewer is Z-up and grid in XY, so use (x, y, z) directly.
@@ -94,10 +99,66 @@ export function createPoseScene(container) {
       group.remove(m);
     });
     boneMeshes.length = 0;
+
+    cameraObjects.forEach((o) => {
+      if (o.geometry?.dispose) o.geometry.dispose();
+      if (o.material?.dispose) o.material.dispose();
+      cameraGroup.remove(o);
+    });
+    cameraObjects.length = 0;
+  }
+
+  function addCameraModel(cam) {
+    const pos = new THREE.Vector3(cam.position.x, cam.position.y, cam.position.z);
+    const right = new THREE.Vector3(cam.right.x, cam.right.y, cam.right.z).normalize();
+    const up = new THREE.Vector3(cam.up.x, cam.up.y, cam.up.z).normalize();
+    const forward = new THREE.Vector3(cam.forward.x, cam.forward.y, cam.forward.z).normalize();
+
+    const d = 0.35;
+    const fx = typeof cam.fx === 'number' && cam.fx > 0 ? cam.fx : 600;
+    const fy = typeof cam.fy === 'number' && cam.fy > 0 ? cam.fy : 600;
+    const cx = typeof cam.cx === 'number' ? cam.cx : 320;
+    const cy = typeof cam.cy === 'number' ? cam.cy : 240;
+    const width = typeof cam.width_px === 'number' && cam.width_px > 0 ? cam.width_px : Math.max(1, 2 * cx);
+    const height = typeof cam.height_px === 'number' && cam.height_px > 0 ? cam.height_px : Math.max(1, 2 * cy);
+
+    function cornerWorld(u, v) {
+      const x = ((u - cx) / fx) * d;
+      const y = -((v - cy) / fy) * d; // v down → y up
+      const z = d;
+      return pos
+        .clone()
+        .add(right.clone().multiplyScalar(x))
+        .add(up.clone().multiplyScalar(y))
+        .add(forward.clone().multiplyScalar(z));
+    }
+
+    const c1 = cornerWorld(0, 0);
+    const c2 = cornerWorld(width, 0);
+    const c3 = cornerWorld(width, height);
+    const c4 = cornerWorld(0, height);
+
+    const points = [
+      pos, c1, pos, c2, pos, c3, pos, c4, // rays
+      c1, c2, c2, c3, c3, c4, c4, c1,     // rectangle
+    ];
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    const mat = new THREE.LineBasicMaterial({ color: 0x9e6a03, linewidth: 2 });
+    const line = new THREE.LineSegments(geo, mat);
+    cameraGroup.add(line);
+    cameraObjects.push(line);
+
+    const axes = new THREE.AxesHelper(0.12);
+    axes.position.copy(pos);
+    cameraGroup.add(axes);
+    cameraObjects.push(axes);
   }
 
   function update(msg) {
     clear();
+    if (Array.isArray(msg.cameras)) {
+      for (const c of msg.cameras) addCameraModel(c);
+    }
     if (!msg.poses || msg.poses.length === 0) return;
     const pose = msg.poses[0];
     const keypoints = pose.keypoints;

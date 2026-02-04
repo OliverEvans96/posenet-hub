@@ -9,7 +9,7 @@ use posenet_vr_hub::controller::Controller;
 use posenet_vr_hub::grpc::proto::CameraInfo;
 use posenet_vr_hub::grpc::proto::Snapshot;
 use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer};
-use posenet_vr_hub::triangulator::{PoseStreamUpdate, TriangulatorConfig};
+use posenet_vr_hub::triangulator::{LabeledPoses3D, PoseStreamUpdate, TriangulatorConfig};
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
 use posenet_vr_hub::websocket::{WebSocketConfig, WebSocketServer};
 
@@ -58,7 +58,28 @@ async fn main() -> anyhow::Result<()> {
 
     // VRPN server holds C++ state that is !Send, so run it in a dedicated thread with its own runtime.
     if opts.vrpn {
-        let vrpn_rx = stream_bcast_tx.subscribe();
+        // Forward only 3D poses to VRPN (do not include camera metadata).
+        let (poses3d_tx, _) = broadcast::channel::<LabeledPoses3D>(100);
+        let mut stream_rx = stream_bcast_tx.subscribe();
+        let poses3d_tx_forw = poses3d_tx.clone();
+        std::thread::spawn(move || {
+            let rt = Runtime::new().expect("VRPN forward runtime");
+            rt.block_on(async move {
+                loop {
+                    match stream_rx.recv().await {
+                        Ok(update) => {
+                            let _ = poses3d_tx_forw.send(update.labeled_poses);
+                        }
+                        Err(e) => {
+                            log::error!("VRPN forward recv error: {}", e);
+                            break;
+                        }
+                    }
+                }
+            });
+        });
+
+        let vrpn_rx = poses3d_tx.subscribe();
         std::thread::spawn(move || {
             let rt = Runtime::new().expect("VRPN runtime");
             let mut vrpn_server = VrpnServer::new(VrpnConfig::default(), vrpn_rx);

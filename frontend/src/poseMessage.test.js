@@ -4,6 +4,7 @@ import {
   normalizePose,
   normalizePose2D,
   normalizeCameraView,
+  normalizeCameraModel,
   KEYPOINT_NAMES,
 } from './poseMessage.js';
 
@@ -38,6 +39,34 @@ describe('parsePoseStreamMessage', () => {
     expect(msg.group_name).toBe('test_group');
     expect(msg.poses).toEqual([]);
     expect(msg.timestamp_ms).toBe(1000);
+  });
+
+  it('parses cameras with intrinsics', () => {
+    const raw = JSON.stringify({
+      group_name: 'g',
+      poses: [],
+      cameras: [
+        {
+          camera_name: 'cam0',
+          fx: 800,
+          fy: 810,
+          cx: 320,
+          cy: 240,
+          width_px: 640,
+          height_px: 480,
+          position: { x: 1, y: 2, z: 3, score: 1 },
+          right: { x: 1, y: 0, z: 0, score: 1 },
+          up: { x: 0, y: 1, z: 0, score: 1 },
+          forward: { x: 0, y: 0, z: 1, score: 1 },
+        },
+      ],
+    });
+    const msg = parsePoseStreamMessage(raw);
+    expect(msg).not.toBeNull();
+    expect(msg.cameras).toHaveLength(1);
+    expect(msg.cameras[0].camera_name).toBe('cam0');
+    expect(msg.cameras[0].fx).toBe(800);
+    expect(msg.cameras[0].width_px).toBe(640);
   });
 
   it('parses a message with one pose and keypoints', () => {
@@ -152,6 +181,26 @@ describe('normalizeCameraView', () => {
     expect(v.camera_name).toBe('front_cam');
     expect(v.poses).toHaveLength(1);
     expect(v.poses[0].keypoints[0]).toEqual({ x: 0, y: 0, score: 1 });
+  });
+});
+
+describe('normalizeCameraModel', () => {
+  it('normalizes intrinsics fields', () => {
+    const c = normalizeCameraModel({
+      camera_name: 'c',
+      fx: 500,
+      fy: 600,
+      cx: 100,
+      cy: 200,
+      width_px: 200,
+      height_px: 400,
+      position: { x: 0, y: 0, z: 0, score: 1 },
+      right: { x: 1, y: 0, z: 0, score: 1 },
+      up: { x: 0, y: 1, z: 0, score: 1 },
+      forward: { x: 0, y: 0, z: 1, score: 1 },
+    });
+    expect(c.fx).toBe(500);
+    expect(c.height_px).toBe(400);
   });
 });
 

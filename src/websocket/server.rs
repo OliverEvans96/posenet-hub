@@ -10,7 +10,7 @@ use tokio_tungstenite::tungstenite::Message;
 use futures_util::{SinkExt, StreamExt};
 
 use crate::grpc::proto::{Point2D, Point3D, Pose2D, Pose3D};
-use crate::triangulator::{CameraView, PoseStreamUpdate};
+use crate::triangulator::{CameraModel, CameraView, PoseStreamUpdate};
 
 /// JSON-serializable 3D point for WebSocket clients.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -51,6 +51,22 @@ pub struct CameraViewJson {
     pub poses: Vec<Pose2DJson>,
 }
 
+/// Camera pose/orientation for 3D visualization.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CameraModelJson {
+    pub camera_name: String,
+    pub fx: f64,
+    pub fy: f64,
+    pub cx: f64,
+    pub cy: f64,
+    pub width_px: f64,
+    pub height_px: f64,
+    pub position: Point3DJson,
+    pub right: Point3DJson,
+    pub up: Point3DJson,
+    pub forward: Point3DJson,
+}
+
 /// Message sent over WebSocket for each pose update.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PoseStreamMessage {
@@ -58,6 +74,8 @@ pub struct PoseStreamMessage {
     pub poses: Vec<Pose3DJson>,
     /// Per-camera 2D poses for camera view panels.
     pub camera_views: Vec<CameraViewJson>,
+    /// Camera models (pose/orientation) for drawing cameras in the 3D view.
+    pub cameras: Vec<CameraModelJson>,
     /// Unix timestamp in milliseconds when the message was sent.
     pub timestamp_ms: u64,
 }
@@ -150,11 +168,46 @@ fn camera_view_to_json(v: &CameraView) -> CameraViewJson {
     }
 }
 
+fn vec3_to_point3_json(v: &nalgebra::Vector3<f64>) -> Point3DJson {
+    Point3DJson {
+        x: v.x,
+        y: v.y,
+        z: v.z,
+        score: 1.0,
+    }
+}
+
+fn point3_to_point3_json(p: &nalgebra::Point3<f64>) -> Point3DJson {
+    Point3DJson {
+        x: p.x,
+        y: p.y,
+        z: p.z,
+        score: 1.0,
+    }
+}
+
+fn camera_model_to_json(c: &CameraModel) -> CameraModelJson {
+    CameraModelJson {
+        camera_name: c.camera_name.clone(),
+        fx: c.fx,
+        fy: c.fy,
+        cx: c.cx,
+        cy: c.cy,
+        width_px: c.width_px,
+        height_px: c.height_px,
+        position: point3_to_point3_json(&c.position),
+        right: vec3_to_point3_json(&c.right),
+        up: vec3_to_point3_json(&c.up),
+        forward: vec3_to_point3_json(&c.forward),
+    }
+}
+
 fn stream_update_to_message(update: &PoseStreamUpdate) -> PoseStreamMessage {
     PoseStreamMessage {
         group_name: update.labeled_poses.group_name.clone(),
         poses: update.labeled_poses.poses.iter().map(pose3d_to_json).collect(),
         camera_views: update.camera_views.iter().map(camera_view_to_json).collect(),
+        cameras: update.cameras.iter().map(camera_model_to_json).collect(),
         timestamp_ms: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -185,11 +238,16 @@ impl Default for WebSocketConfig {
     }
 }
 
-/// Type for a sink that sends WebSocket text messages. Used to broadcast to clients.
+/// Type for a sink that sends WebSocket text messages.
 type WsSender = futures_util::stream::SplitSink<
     tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     Message,
 >;
+
+#[derive(Debug)]
+struct Client {
+    sender: WsSender,
+}
 
 pub struct WebSocketServer {
     config: WebSocketConfig,
@@ -223,9 +281,11 @@ impl WebSocketServer {
     }
 
     async fn run_accept_loop(self, listener: TcpListener) -> anyhow::Result<()> {
-        let clients: Arc<RwLock<Vec<WsSender>>> = Arc::new(RwLock::new(Vec::new()));
+        let clients: Arc<RwLock<Vec<Client>>> = Arc::new(RwLock::new(Vec::new()));
+        let cameras_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 
         let clients_for_accept = clients.clone();
+        let cameras_cache_for_accept = cameras_cache.clone();
         let accept_handle = tokio::spawn(async move {
             loop {
                 let (stream, _peer) = match listener.accept().await {
@@ -236,14 +296,19 @@ impl WebSocketServer {
                     }
                 };
                 let clients_ref = clients_for_accept.clone();
+                let cameras_cache_ref = cameras_cache_for_accept.clone();
                 tokio::spawn(async move {
                     if let Ok(ws_stream) =
                         tokio_tungstenite::accept_async(stream).await
                     {
-                        let (write_half, mut read_half) = ws_stream.split();
+                        let (mut write_half, mut read_half) = ws_stream.split();
+                        // Send latest known cameras immediately on connect (if any).
+                        if let Some(json) = cameras_cache_ref.read().await.clone() {
+                            let _ = write_half.send(Message::Text(json)).await;
+                        }
                         {
                             let mut guard = clients_ref.write().await;
-                            guard.push(write_half);
+                            guard.push(Client { sender: write_half });
                         }
                         while read_half.next().await.is_some() {
                             // Drain incoming messages (we don't process client messages)
@@ -255,28 +320,50 @@ impl WebSocketServer {
 
         let mut stream_rx = self.stream_rx;
         let clients_for_broadcast = clients.clone();
+        let cameras_cache_for_broadcast = cameras_cache.clone();
         let broadcast_handle = tokio::spawn(async move {
             while let Ok(update) = stream_rx.recv().await {
-                let msg = stream_update_to_message(&update);
-                let n_poses = msg.poses.len();
-                let json = match serde_json::to_string(&msg) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        log::warn!("WebSocket serialize error: {}", e);
-                        continue;
+                let base_msg = stream_update_to_message(&update);
+
+                // Camera updates: cache and broadcast (these happen on camera connect / optional updates).
+                if !base_msg.cameras.is_empty() {
+                    if let Ok(json) = serde_json::to_string(&base_msg) {
+                        *cameras_cache_for_broadcast.write().await = Some(json.clone());
+                        let mut guard = clients_for_broadcast.write().await;
+                        let mut i = 0;
+                        while i < guard.len() {
+                            if let Err(e) =
+                                guard[i].sender.send(Message::Text(json.clone())).await
+                            {
+                                log::debug!("WebSocket send error (client dropped?): {}", e);
+                                let _ = guard.remove(i);
+                            } else {
+                                i += 1;
+                            }
+                        }
                     }
-                };
+                    continue;
+                }
+
+                let n_poses = base_msg.poses.len();
                 let mut guard = clients_for_broadcast.write().await;
                 log::debug!(
                     "WebSocket: broadcasting group='{}' {} pose(s) to {} client(s)",
-                    msg.group_name,
+                    base_msg.group_name,
                     n_poses,
                     guard.len()
                 );
                 let mut i = 0;
                 while i < guard.len() {
-                    let sender = &mut guard[i];
-                    if let Err(e) = sender.send(Message::Text(json.clone())).await {
+                    let json = match serde_json::to_string(&base_msg) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            log::warn!("WebSocket serialize error: {}", e);
+                            i += 1;
+                            continue;
+                        }
+                    };
+                    if let Err(e) = guard[i].sender.send(Message::Text(json)).await {
                         log::debug!("WebSocket send error (client dropped?): {}", e);
                         let _ = guard.remove(i);
                     } else {
@@ -411,11 +498,13 @@ mod tests {
                     poses: vec![],
                 },
             ],
+            cameras: vec![],
         };
         let msg = stream_update_to_message(&update);
         assert_eq!(msg.group_name, "test_group");
         assert!(msg.poses.is_empty());
         assert_eq!(msg.camera_views.len(), 2);
+        assert_eq!(msg.cameras.len(), 0);
         assert_eq!(msg.camera_views[0].camera_name, "cam1");
         assert_eq!(msg.camera_views[1].camera_name, "cam2");
         assert!(msg.timestamp_ms > 0);

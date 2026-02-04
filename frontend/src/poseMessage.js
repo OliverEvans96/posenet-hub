@@ -1,6 +1,6 @@
 /**
  * Parses and validates WebSocket pose stream messages from the hub.
- * Message format: { group_name, poses, camera_views?, timestamp_ms }
+ * Message format: { group_name, poses, camera_views?, cameras?, timestamp_ms }
  */
 
 const KEYPOINT_NAMES = [
@@ -29,7 +29,8 @@ const KEYPOINT_NAMES = [
  * @typedef {{ x: number, y: number, score: number }} Point2D
  * @typedef {{ keypoints: (Point2D|null)[], score: number }} Pose2DJson
  * @typedef {{ camera_name: string, poses: Pose2DJson[] }} CameraViewJson
- * @typedef {{ group_name: string, poses: Pose3DJson[], camera_views?: CameraViewJson[], timestamp_ms: number }} PoseStreamMessage
+ * @typedef {{ camera_name: string, fx: number, fy: number, cx: number, cy: number, width_px: number, height_px: number, position: Point3D, right: Point3D, up: Point3D, forward: Point3D }} CameraModelJson
+ * @typedef {{ group_name: string, poses: Pose3DJson[], camera_views?: CameraViewJson[], cameras?: CameraModelJson[], timestamp_ms: number }} PoseStreamMessage
  */
 
 /**
@@ -48,10 +49,12 @@ export function parsePoseStreamMessage(raw) {
     const camera_views = Array.isArray(data.camera_views)
       ? data.camera_views.map(normalizeCameraView)
       : [];
+    const cameras = Array.isArray(data.cameras) ? data.cameras.map(normalizeCameraModel) : [];
     return {
       group_name: data.group_name,
       poses,
       camera_views,
+      cameras,
       timestamp_ms: typeof data.timestamp_ms === 'number' ? data.timestamp_ms : 0,
     };
   } catch {
@@ -143,6 +146,42 @@ export function normalizeCameraView(v) {
   return {
     camera_name: typeof v.camera_name === 'string' ? v.camera_name : '',
     poses,
+  };
+}
+
+/**
+ * Normalize a camera model: camera_name + 3D vectors.
+ * @param {unknown} c
+ * @returns {CameraModelJson}
+ */
+export function normalizeCameraModel(c) {
+  const empty = {
+    camera_name: '',
+    fx: 0,
+    fy: 0,
+    cx: 0,
+    cy: 0,
+    width_px: 0,
+    height_px: 0,
+    position: { x: 0, y: 0, z: 0, score: 1 },
+    right: { x: 1, y: 0, z: 0, score: 1 },
+    up: { x: 0, y: 1, z: 0, score: 1 },
+    forward: { x: 0, y: 0, z: 1, score: 1 },
+  };
+  if (!c || typeof c !== 'object') return empty;
+  const name = typeof c.camera_name === 'string' ? c.camera_name : '';
+  return {
+    camera_name: name,
+    fx: typeof c.fx === 'number' ? c.fx : 0,
+    fy: typeof c.fy === 'number' ? c.fy : 0,
+    cx: typeof c.cx === 'number' ? c.cx : 0,
+    cy: typeof c.cy === 'number' ? c.cy : 0,
+    width_px: typeof c.width_px === 'number' ? c.width_px : 0,
+    height_px: typeof c.height_px === 'number' ? c.height_px : 0,
+    position: isValidPoint(c.position) ? c.position : empty.position,
+    right: isValidPoint(c.right) ? c.right : empty.right,
+    up: isValidPoint(c.up) ? c.up : empty.up,
+    forward: isValidPoint(c.forward) ? c.forward : empty.forward,
   };
 }
 

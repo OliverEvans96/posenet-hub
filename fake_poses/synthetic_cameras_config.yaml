@@ -14,19 +14,30 @@ fps: 30
 rotation_speed_rad_per_sec: 0.3
 
 cameras:
-  # Front-left, elevated
-  - position: [2.5, 1.5, 3.0]
-    look_at: [0.0, 0.0, 0.0]
-    name: "cam_front_left"
-  # Front-right, elevated
-  - position: [-2.5, 1.5, 3.0]
-    look_at: [0.0, 0.0, 0.0]
-    name: "cam_front_right"
-  # Back-left, lower
-  - position: [2.0, 0.8, -2.5]
-    look_at: [0.0, 0.0, 0.0]
-    name: "cam_back_left"
-  # Back-right, mid height
-  - position: [-2.0, 1.2, -2.5]
-    look_at: [0.0, 0.0, 0.0]
-    name: "cam_back_right"
+  # Coordinates are in meters. Convention used here: world_up is +Z.
+  # Place cameras like wall/ceiling mounts in a medium room, looking at the subject around chest height.
+  # fov_deg is horizontal field-of-view in degrees.
+
+  # Front-left (ceiling-ish corner)
+  - name: "cam_front_left"
+    position: [3.2, 3.0, 2.4]
+    look_at: [0.0, 0.0, 1.0]
+    fov_deg: 75
+
+  # Front-right (ceiling-ish corner)
+  - name: "cam_front_right"
+    position: [-3.2, 3.0, 2.4]
+    look_at: [0.0, 0.0, 1.0]
+    fov_deg: 75
+
+  # Back-left (high wall mount)
+  - name: "cam_back_left"
+    position: [3.0, -3.2, 2.1]
+    look_at: [0.0, 0.0, 1.0]
+    fov_deg: 75
+
+  # Back-right (high wall mount)
+  - name: "cam_back_right"
+    position: [-3.0, -3.2, 2.1]
+    look_at: [0.0, 0.0, 1.0]
+    fov_deg: 75

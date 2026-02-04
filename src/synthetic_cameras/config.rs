@@ -57,8 +57,10 @@ pose_csv_path: "fake_poses/running_pose.csv"
 cameras:
   - position: [2, 1.5, 3]
     look_at: [0, 0, 0]
+    fov_deg: 75
   - position: [-2, 1.5, 3]
     look_at: [0, 0, 0]
+    fov_deg: 75
 "#;
         let config: SyntheticCamerasConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.group_name, "synthetic");
@@ -80,6 +82,7 @@ rotation_speed_rad_per_sec: 0.2
 cameras:
   - position: [0, 0, 5]
     look_at: [0, 0, 0]
+    fov_deg: 90
 "#;
         let config: SyntheticCamerasConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.duration_secs, Some(60));

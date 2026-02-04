@@ -11,6 +11,10 @@ const DEFAULT_FY: f64 = 500.0;
 const DEFAULT_CX: f64 = 320.0;
 const DEFAULT_CY: f64 = 240.0;
 
+/// Default synthetic image size used for intrinsics derived from FOV.
+const DEFAULT_IMAGE_WIDTH_PX: f64 = 640.0;
+const DEFAULT_IMAGE_HEIGHT_PX: f64 = 480.0;
+
 /// Camera position and orientation in config (YAML).
 #[derive(Clone, Debug, Deserialize)]
 pub struct CameraConfig {
@@ -18,26 +22,33 @@ pub struct CameraConfig {
     pub position: [f64; 3],
     /// Point the camera looks at in world (meters). Used to derive orientation.
     pub look_at: [f64; 3],
+    /// Horizontal field of view (degrees). If present, intrinsics are derived from this.
+    #[serde(default)]
+    pub fov_deg: Option<f64>,
     /// Optional display name for this camera.
     #[serde(default)]
     pub name: Option<String>,
 }
 
 /// Build a 3x4 [R|t] extrinsics matrix: world to camera.
-/// Camera at `position`, looking at `look_at`. World up = +Y.
+/// Camera at `position`, looking at `look_at`. World up = +Z.
 /// OpenMVG convention: t = -R*C, so P = [R|t] with C = camera center in world.
 pub fn view_matrix_from_position_look_at(
     position: Point3<f64>,
     look_at: Point3<f64>,
 ) -> Matrix3x4<f64> {
     let forward = (look_at - position).normalize();
-    let world_up = Vector3::new(0.0, 1.0, 0.0);
-    let right = forward.cross(&world_up);
-    let right = if right.norm_squared() < 1e-10 {
-        forward.cross(&Vector3::new(0.0, 0.0, 1.0)).normalize()
+    // World up for this project is +Z.
+    // If forward is near-parallel with the up axis (camera directly above/below target),
+    // fall back to a different up axis to avoid degeneracy.
+    let world_up = Vector3::new(0.0, 0.0, 1.0);
+    let alt_up = Vector3::new(0.0, 1.0, 0.0);
+    let up_used = if forward.dot(&world_up).abs() > 0.999 {
+        alt_up
     } else {
-        right.normalize()
+        world_up
     };
+    let right = forward.cross(&up_used).normalize();
     // Use forward.cross(right) so that det[R] = +1 (right-handed camera frame).
     let up = forward.cross(&right).normalize();
     let r = Rotation3::from_matrix(&Matrix3::from_columns(&[right, up, forward]));
@@ -95,6 +106,17 @@ impl CameraConfig {
 
     /// Full calibration (intrinsics + extrinsics) using default intrinsics.
     pub fn calibration(&self) -> CalibrationParameters {
+        // If FOV is provided, derive focal length assuming a pinhole camera model with a
+        // fixed synthetic image size.
+        if let Some(fov_deg) = self.fov_deg {
+            let fov_rad = fov_deg.to_radians();
+            let fx = (DEFAULT_IMAGE_WIDTH_PX * 0.5) / (fov_rad * 0.5).tan();
+            // Use square pixels for synthetic camera.
+            let fy = fx;
+            let cx = DEFAULT_IMAGE_WIDTH_PX * 0.5;
+            let cy = DEFAULT_IMAGE_HEIGHT_PX * 0.5;
+            return calibration_from_view_and_intrinsics(&self.view_matrix(), fx, fy, cx, cy);
+        }
         calibration_from_view_and_intrinsics(
             &self.view_matrix(),
             DEFAULT_FX,
@@ -132,6 +154,7 @@ mod tests {
         let config = CameraConfig {
             position: [2.0, 1.5, 3.0],
             look_at: [0.0, 0.0, 0.0],
+            fov_deg: None,
             name: None,
         };
         let cal = config.calibration();
@@ -143,6 +166,23 @@ mod tests {
         assert_eq!(k[4], DEFAULT_FY);
         assert_eq!(k[2], DEFAULT_CX);
         assert_eq!(k[5], DEFAULT_CY);
+    }
+
+    #[test]
+    fn camera_config_fov_deg_derives_fx_from_default_width() {
+        let config = CameraConfig {
+            position: [2.0, 1.5, 3.0],
+            look_at: [0.0, 0.0, 0.0],
+            fov_deg: Some(90.0),
+            name: None,
+        };
+        let cal = config.calibration();
+        let k = &cal.intrinsics.as_ref().unwrap().camera_matrix;
+        // For 90° horizontal FOV: fx = (w/2)/tan(45°) = w/2 = 320 for w=640.
+        assert!((k[0] - 320.0).abs() < 1e-9, "fx expected ~320, got {}", k[0]);
+        assert!((k[4] - 320.0).abs() < 1e-9, "fy expected ~320, got {}", k[4]);
+        assert!((k[2] - 320.0).abs() < 1e-9, "cx expected 320, got {}", k[2]);
+        assert!((k[5] - 240.0).abs() < 1e-9, "cy expected 240, got {}", k[5]);
     }
 
     #[test]
