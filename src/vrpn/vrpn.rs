@@ -1,5 +1,6 @@
 use cxx::UniquePtr;
 
+use crate::errors::MissingField;
 use crate::grpc::proto::Pose3D;
 
 #[cxx::bridge]
@@ -30,7 +31,8 @@ pub fn update_values(
     server: &mut UniquePtr<ffi::PoseNetVrpnContainer>,
     device_name: &str,
     pose: Pose3D,
-) {
-    let values: Vec<_> = pose.into();
+) -> Result<(), MissingField> {
+    let values: Vec<f64> = pose.try_into()?;
     ffi::update_values(server, device_name, &values);
+    Ok(())
 }

@@ -4,9 +4,12 @@
 //! https://doc.rust-lang.org/rustdoc/how-to-write-documentation.html
 
 pub mod controller;
+pub mod errors;
 pub mod grpc;
 pub mod openmvg;
 pub mod triangulator;
 mod utils;
-mod errors;
 pub mod vrpn;
+
+// Re-export common error types for library consumers and binaries
+pub use errors::{CalculationError, ConfigError, HubError, MissingField, OpenMvgError};

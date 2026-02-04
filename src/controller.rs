@@ -1,17 +1,14 @@
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::{sync::broadcast, try_join};
 
 use crate::grpc::proto::{CameraInfo, Snapshot};
 use crate::triangulator::{LabeledPoses3D, Triangulator, TriangulatorConfig};
 
-// https://benkay86.github.io/rust-error-tutorial.html
-pub type BoxError = std::boxed::Box<
-    dyn std::error::Error // must implement Error to satisfy ?
-        + std::marker::Send // needed for threads
-        + std::marker::Sync, // needed for threads
->;
+/// Application-level error type. Use `anyhow::Result` at binary boundaries.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 pub struct TriangulatorInfo {
     cameras_tx: UnboundedSender<CameraInfo>,

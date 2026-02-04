@@ -1,13 +1,12 @@
 use nalgebra::{Matrix3, Matrix3x4, Point2};
-use std::convert::TryFrom;
-use std::sync::{Arc, RwLock};
+use parking_lot::RwLock;
+use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::{sync::broadcast, time::sleep, try_join};
 
-use crate::controller::BoxError;
-use crate::errors::{CalculationError, MissingField};
+use crate::errors::{CalculationError, HubError, MissingField};
 use crate::grpc::proto::{CalibrationParameters, CameraInfo, Pose2D, Pose3D, SPoint2, Snapshot};
 use crate::openmvg::openmvg::triangulate_many;
 use crate::utils::transpose_vecvec;
@@ -45,18 +44,16 @@ impl Default for TriangulatorConfig {
 
 /// Group associated points by keypoint (projections of same 3d point)
 /// and convert from gRPC to (nalgebra type, score value)
-fn collect_points_by_keypoint(poses: Vec<Pose2D>) -> Vec<Vec<SPoint2>> {
-    // x[i][j] is the coorinates of keypoint j as seen from camera i
+fn collect_points_by_keypoint(poses: Vec<Pose2D>) -> Result<Vec<Vec<SPoint2>>, HubError> {
     let points_grouped_by_camera: Vec<Vec<SPoint2>> = poses
         .into_iter()
         .map(|pose| {
-            let (points, score) = pose.into();
-            points
+            let (points, _score) = pose.try_into()?;
+            Ok(points)
         })
-        .collect();
-    // x[i][j] is the coorinates of keypoint i as seen from camera j
-    let points_grouped_by_keypoint = transpose_vecvec(&points_grouped_by_camera);
-    points_grouped_by_keypoint
+        .collect::<Result<Vec<_>, _>>()?;
+    let points_grouped_by_keypoint = transpose_vecvec(&points_grouped_by_camera)?;
+    Ok(points_grouped_by_keypoint)
 }
 
 pub fn calculate_camera_matrix(
@@ -92,16 +89,13 @@ pub fn calculate_camera_matrix(
 pub fn triangulate_from_poses_and_camera_matrices(
     poses: Vec<Pose2D>,
     camera_matrices: &[Matrix3x4<f64>],
-) -> Pose3D {
-    // Aggregate 2D pose scores by minimum, TODO better way?
+) -> Result<Pose3D, HubError> {
     let pose_score = poses
         .iter()
         .fold(1.0, |total, pose| f64::min(total, pose.score));
 
-    // Rearrange 2D points grouped by keypoint
-    let keypoints = collect_points_by_keypoint(poses);
+    let keypoints = collect_points_by_keypoint(poses)?;
 
-    // Aggregate 2D point scores by minimum, TODO better way?
     let keypoint_scores: Vec<f64> = keypoints
         .iter()
         .map(|ks| {
@@ -110,19 +104,17 @@ pub fn triangulate_from_poses_and_camera_matrices(
         })
         .collect();
 
-    // Reconstruct the 3D points
     let points2d: Vec<Vec<Point2<f64>>> = keypoints
         .into_iter()
-        .map(|ks| ks.into_iter().map(|(p, s)| p).collect())
+        .map(|ks| ks.into_iter().map(|(p, _s)| p).collect())
         .collect();
-    let points3d = triangulate_many(&points2d, camera_matrices);
+    let points3d = triangulate_many(&points2d, camera_matrices)?;
 
-    // Pose3D from 3D points
     let scored_points3d = points3d
         .into_iter()
         .zip(keypoint_scores.into_iter())
         .collect();
-    (scored_points3d, pose_score).into()
+    Ok((scored_points3d, pose_score).into())
 }
 
 // pub fn score_from_poses(poses: Vec<Pose2D>, pose3d: Pose3D)
@@ -300,39 +292,43 @@ impl Triangulator {
     fn group_poses_and_cameras_by_user(
         &self,
         snapshots: Vec<Snapshot>,
-    ) -> Vec<(Vec<Pose2D>, Vec<Matrix3x4<f64>>)> {
-        let max_users = 1; // limit to 1 user for now
+    ) -> Result<Vec<(Vec<Pose2D>, Vec<Matrix3x4<f64>>)>, HubError> {
+        let max_users = 1;
         (0..max_users)
             .map(|id| {
-                // TODO handle missing snapshots, and remove corresponding camera matrix
-                let user_snapshots = (&snapshots)
-                    .into_iter()
-                    .map(|labeled| self.get_pose_for_user(labeled, id).unwrap())
-                    .collect();
-                let camera_matrices = self.get_cameras_for_snapshots(&snapshots);
-                (user_snapshots, camera_matrices)
+                let user_snapshots = snapshots
+                    .iter()
+                    .map(|labeled| {
+                        self.get_pose_for_user(labeled, id)
+                            .ok_or(MissingField::Keypoint("user pose".to_string()))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let camera_matrices = self.get_cameras_for_snapshots(&snapshots)?;
+                Ok((user_snapshots, camera_matrices))
             })
             .collect()
     }
 
     fn get_camera_matrix(&self, name: &str) -> Option<Matrix3x4<f64>> {
-        let hm = self.cameras.read().expect("state lock poisoned!");
+        let hm = self.cameras.read();
         let camera = hm.get(name)?;
         Some(camera.matrix)
     }
 
-    fn get_cameras_for_snapshots(&self, snapshots: &[Snapshot]) -> Vec<Matrix3x4<f64>> {
+    fn get_cameras_for_snapshots(
+        &self,
+        snapshots: &[Snapshot],
+    ) -> Result<Vec<Matrix3x4<f64>>, HubError> {
         snapshots
             .iter()
             .map(|snapshot| {
                 let camera_name = snapshot
                     .which_camera
                     .as_ref()
-                    .map(|which_camera| which_camera.camera_name.as_ref())
-                    .ok_or(MissingField::CameraName)
-                    .unwrap();
+                    .and_then(|w| w.camera_name.as_ref())
+                    .ok_or(MissingField::CameraName)?;
                 self.get_camera_matrix(camera_name)
-                    .expect("Error while getting camera matrix")
+                    .ok_or(CalculationError::CameraMatrixFailed(MissingField::CameraName).into())
             })
             .collect()
     }

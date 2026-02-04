@@ -1,19 +1,20 @@
 use futures::future::join_all;
 use futures::{pin_mut, Future, FutureExt, Stream, StreamExt};
 use nalgebra::{Matrix2xX, Matrix3, Matrix3xX, Matrix4, Point3, Vector2, Vector3};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::task::Poll;
 use std::time::{Duration, Instant};
-use std::{error::Error, net::SocketAddr, pin::Pin};
+use std::{net::SocketAddr, pin::Pin};
 use thiserror::Error;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Server, Request, Response, Status};
 
-use crate::errors::MissingField;
+use crate::errors::{ConfigError, HubError, InvalidInput, MissingField};
 use crate::openmvg::openmvg::ceres_bundle_adjustment;
 
 use super::proto::hub_service_server::{HubService, HubServiceServer};
@@ -90,7 +91,7 @@ impl HubService for HubServer {
         {
             // Activate lock to gain thread-safe, mutable access to shared data
             // (this rpc could be called multiple times simultaneously)
-            let mut offers_hm = self.snapshot_offers.write().await;
+            let mut offers_hm = self.snapshot_offers.write();
 
             let group_name = camera.group_name.clone();
             let camera_name = camera.camera_name.clone();
@@ -192,7 +193,7 @@ impl HubService for HubServer {
             let num_offers = camera_names.len();
             let (tx, rx) = mpsc::channel(num_offers);
             {
-                let mut all_channels = self.snapshot_channels.write().await;
+                let mut all_channels = self.snapshot_channels.write();
                 all_channels.insert(snapshot_id.clone(), tx);
             }
 
@@ -254,7 +255,7 @@ impl HubService for HubServer {
 
             // Remove channel
             {
-                let mut channels_hm = self.snapshot_channels.write().await;
+                let mut channels_hm = self.snapshot_channels.write();
                 channels_hm.remove(&snapshot_id)
             };
 
@@ -305,10 +306,9 @@ impl HubService for HubServer {
 
     async fn hello(&self, request: Request<CameraInfo>) -> Result<Response<SessionToken>, Status> {
         let info = request.into_inner();
-        self.cameras_tx
-            .send(info)
-            .await
-            .expect("Pose channel was closed.");
+        self.cameras_tx.send(info).await.map_err(|_| {
+            Status::internal("Camera channel was closed")
+        })?;
 
         let token = SessionToken::new();
 
@@ -474,7 +474,10 @@ impl HubService for HubServer {
             let command = camera_control_command::Command::Ping(Ping {});
             let send_time = Instant::now();
 
-            let response_stream_futures = self.execute_command(which_camera, command).await;
+            let response_stream_futures = self
+                .execute_command(which_camera, command)
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
             let num_pings = response_stream_futures.len();
             // TODO: Await responses in parallel w/ timeout
             let (ping_tx, ping_rx) = mpsc::channel(num_pings);
@@ -577,13 +580,15 @@ impl HubService for HubServer {
                 "Not all required camera info was provided.",
             )))?;
 
-        let poses3d = poses_by_subject.into_iter().map(|poses| {
-            triangulator::triangulate_from_poses_and_camera_matrices(poses, &camera_matrices)
-        });
+        let poses3d = poses_by_subject
+            .into_iter()
+            .map(|poses| {
+                triangulator::triangulate_from_poses_and_camera_matrices(poses, &camera_matrices)
+            })
+            .collect::<Result<Vec<_>, HubError>>()
+            .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
-        let response = TriangulationResponse {
-            poses: poses3d.collect(),
-        };
+        let response = TriangulationResponse { poses: poses3d };
 
         log::info!("Finished triangulate request");
 
@@ -631,7 +636,9 @@ impl HubService for HubServer {
             // Collect keypoint observations from this camera
             let mut x = Matrix2xX::zeros(npoints_total);
             for (k, pose) in view.poses.into_iter().enumerate() {
-                let (spoints, _): (Vec<SPoint2>, f64) = pose.into();
+                let (spoints, _): (Vec<SPoint2>, f64) = pose
+                    .try_into()
+                    .map_err(|e: MissingField| Status::invalid_argument(e.to_string()))?;
                 for (h, (point, _score)) in spoints.iter().enumerate() {
                     let j = nkeypoints * k + h;
                     // TODO: Use score
@@ -641,29 +648,20 @@ impl HubService for HubServer {
             }
             xs.push(x);
 
-            // TODO: Don't panic
-            let camera = view.camera.unwrap();
-            // TODO: Use distortion coefficients
-            let k = Matrix3::from_row_slice(
-                &camera
-                    .calibration
-                    .clone()
-                    .unwrap()
-                    .intrinsics
-                    .as_ref()
-                    .unwrap()
-                    .camera_matrix,
-            );
-            let c = Matrix4::from_row_slice(
-                &camera
-                    .calibration
-                    .clone()
-                    .unwrap()
-                    .extrinsics
-                    .as_ref()
-                    .unwrap()
-                    .view_matrix,
-            );
+            let camera = view.camera.ok_or_else(|| {
+                Status::invalid_argument("Each view must have camera data")
+            })?;
+            let calibration = camera.calibration.as_ref().ok_or_else(|| {
+                Status::invalid_argument("Camera missing calibration")
+            })?;
+            let intrinsics = calibration.intrinsics.as_ref().ok_or_else(|| {
+                Status::invalid_argument("Calibration missing intrinsics")
+            })?;
+            let extrinsics = calibration.extrinsics.as_ref().ok_or_else(|| {
+                Status::invalid_argument("Calibration missing extrinsics")
+            })?;
+            let k = Matrix3::from_row_slice(&intrinsics.camera_matrix);
+            let c = Matrix4::from_row_slice(&extrinsics.view_matrix);
             let cn = c.fixed_rows::<3>(0);
             // TODO: Avoid copying here?
             let r = cn.fixed_columns::<3>(0).clone_owned();
@@ -677,8 +675,15 @@ impl HubService for HubServer {
             orig_cameras.push(camera);
         }
 
-        let result =
-            ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d, message.options);
+        let result = ceres_bundle_adjustment(
+            &xs,
+            &mut ks,
+            &mut ts,
+            &mut rs,
+            &mut x3d,
+            message.options,
+        )
+        .map_err(|e| Status::internal(e.to_string()))?;
 
         if !result {
             log::error!("Bundle adjustment failed");
@@ -808,9 +813,15 @@ async fn send_control_command(
     command: camera_control_command::Command,
     channels: Vec<mpsc::Sender<CameraControlCommand>>,
     tokens: Vec<CommandToken>,
-) {
-    // TODO: Don't panic - return result
-    assert_eq!(channels.len(), tokens.len());
+) -> Result<(), HubError> {
+    if channels.len() != tokens.len() {
+        return Err(InvalidInput::Message(format!(
+            "send_control_command: channels.len() {} != tokens.len() {}",
+            channels.len(),
+            tokens.len()
+        ))
+        .into());
+    }
     let futures = channels.into_iter().zip(tokens).map(|(tx, token)| {
         let control_command = CameraControlCommand {
             token: Some(token),
@@ -818,8 +829,10 @@ async fn send_control_command(
         };
         async move { tx.send(control_command).await }
     });
-    // Await all sends simultaneously
-    join_all(futures).await;
+    for fut in join_all(futures).await {
+        fut.map_err(|_| crate::errors::ChannelError::SendClosed)?;
+    }
+    Ok(())
 }
 
 impl HubServer {
@@ -937,7 +950,7 @@ impl HubServer {
         tokens: Vec<CommandToken>,
     ) -> Vec<mpsc::Receiver<CommandResponseMessage>> {
         let mut rxs = Vec::with_capacity(tokens.len());
-        let mut rx_hm = self.data_channels.write().await;
+        let mut rx_hm = self.data_channels.write();
         for token in tokens {
             let (tx, rx) = mpsc::channel(10);
             rxs.push(rx);
@@ -985,7 +998,7 @@ impl HubServer {
         let rxs = self.create_data_channels(command_tokens.clone()).await;
 
         // Send command over channels
-        send_control_command(command, control_channels, command_tokens).await;
+        send_control_command(command, control_channels, command_tokens).await?;
 
         // Return access to incoming data, labeled by camera
         let response_streams: Vec<_> = cameras
@@ -1026,7 +1039,7 @@ impl HubServer {
             })
             .collect();
 
-        stream_futures
+        Ok(stream_futures)
     }
 }
 
@@ -1091,16 +1104,20 @@ pub struct GrpcConfig {
 }
 
 impl GrpcConfig {
-    pub fn new(ip: &str, port: u16) -> Result<Self, Box<dyn Error>> {
+    pub fn new(ip: &str, port: u16) -> Result<Self, ConfigError> {
         Ok(Self {
             addr: format!("{}:{}", ip, port).parse()?,
         })
+    }
+
+    pub fn try_default() -> Result<Self, ConfigError> {
+        Self::new("0.0.0.0", 50051)
     }
 }
 
 impl Default for GrpcConfig {
     fn default() -> Self {
-        GrpcConfig::new("0.0.0.0", 50051).expect("Default GRPC configuration invalid!")
+        Self::try_default().expect("default gRPC config 0.0.0.0:50051 must be valid")
     }
 }
 
@@ -1123,7 +1140,7 @@ impl GrpcServer {
         }
     }
 
-    pub async fn run(self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn run(self) -> anyhow::Result<()> {
         log::info!("PoseNet Hub gRPC service listening on {}", self.config.addr);
 
         let hub_server = HubServer {

@@ -4,6 +4,7 @@ use nalgebra::{self, Matrix2xX, Matrix3, Matrix3x4, Matrix3xX};
 use nalgebra::{Point2, Point3, Rotation3, Vector3};
 
 use super::eigen::{Matrix3xN, ToEigen, ToNalgebra};
+use crate::errors::OpenMvgError;
 use crate::grpc::proto::BundleAdjustmentOptions;
 
 #[cxx::bridge]
@@ -70,7 +71,7 @@ impl From<BundleAdjustmentOptions> for ffi::BundleAdjustmentOptions {
 
 impl From<Option<BundleAdjustmentOptions>> for ffi::BundleAdjustmentOptions {
     fn from(maybe_opts: Option<BundleAdjustmentOptions>) -> Self {
-        maybe_opts.map(|opts| opts.into()).unwrap_or_default()
+        maybe_opts.map_or_else(Default::default, Into::into)
     }
 }
 
@@ -81,31 +82,32 @@ pub fn ceres_bundle_adjustment(
     rs: &mut Vec<Matrix3<f64>>,
     x3d: &mut Matrix3xX<f64>,
     opts: Option<BundleAdjustmentOptions>,
-) -> bool {
-    // All `Vec`s should be the same length
+) -> Result<bool, OpenMvgError> {
     let nviews = xs.len();
 
-    // Convert to Eigen types
     let xse = xs.to_eigen();
     let mut rse = rs.to_eigen();
     let mut tse = ts.to_eigen();
     let mut kse = ks.to_eigen();
     let mut x3de = x3d.to_eigen();
 
-    // Perform bundle adjustment
     let result =
         ffi::ceres_bundle_adjustment(&xse, &mut kse, &mut tse, &mut rse, &mut x3de, opts.into());
 
-    // Only proceed if bundle adjustment succeeded
     if result {
-        // Convert back to nalgebra
-        // TODO: Don't panic
-        let ksn = kse.to_nalgebra().unwrap();
-        let tsn = tse.to_nalgebra().unwrap();
-        let rsn = rse.to_nalgebra().unwrap();
-        let x3dn = x3de.to_nalgebra().unwrap();
+        let ksn = kse
+            .to_nalgebra()
+            .ok_or(OpenMvgError::FfiConversionFailed)?;
+        let tsn = tse
+            .to_nalgebra()
+            .ok_or(OpenMvgError::FfiConversionFailed)?;
+        let rsn = rse
+            .to_nalgebra()
+            .ok_or(OpenMvgError::FfiConversionFailed)?;
+        let x3dn = x3de
+            .to_nalgebra()
+            .ok_or(OpenMvgError::FfiConversionFailed)?;
 
-        // Modify input arguments
         x3d.copy_from(&x3dn);
         for i in 0..nviews {
             ks[i].copy_from(&ksn[i]);
@@ -114,12 +116,20 @@ pub fn ceres_bundle_adjustment(
         }
     }
 
-    return result;
+    Ok(result)
 }
 
 /// Triangulate a single point across multiple cameras
-pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) -> Point3<f64> {
-    assert_eq!(points2d.len(), camera_poses.len());
+pub fn triangulate(
+    points2d: &[Point2<f64>],
+    camera_poses: &[Matrix3x4<f64>],
+) -> Result<Point3<f64>, OpenMvgError> {
+    if points2d.len() != camera_poses.len() {
+        return Err(OpenMvgError::DimensionMismatch {
+            points: points2d.len(),
+            cameras: camera_poses.len(),
+        });
+    }
     let x2d_h_mat = Matrix3xN::<f64>::from_columns(
         points2d
             .iter()
@@ -131,13 +141,13 @@ pub fn triangulate(points2d: &[Point2<f64>], camera_poses: &[Matrix3x4<f64>]) ->
     let camera_mat = camera_poses.to_eigen();
 
     let x3d_h_eig = ffi::triangulate_nview(x2d_h_mat, camera_mat);
-    // TODO: Don't panic
-    let x3d_h = x3d_h_eig.to_nalgebra().unwrap();
-    // TODO: Avoid copying? Does this `.into()` copy?
-    let x3d =
-        Point3::from_homogeneous(x3d_h.into()).expect("Triangulated point was not homogeneous");
+    let x3d_h = x3d_h_eig
+        .to_nalgebra()
+        .ok_or(OpenMvgError::FfiConversionFailed)?;
+    let x3d = Point3::from_homogeneous(x3d_h.into())
+        .ok_or(OpenMvgError::NonHomogeneousPoint)?;
 
-    return x3d;
+    Ok(x3d)
 }
 
 /// Triangulate many points (a single pose) across many cameras
@@ -171,11 +181,13 @@ pub fn create_camera_matrix(center: Point3<f64>, rotation: Rotation3<f64>) -> Ma
 }
 
 /// Project a single 3D point onto a single camera
-pub fn get_projection(x3d: Point3<f64>, p: Matrix3x4<f64>) -> Point2<f64> {
+pub fn get_projection(
+    x3d: Point3<f64>,
+    p: Matrix3x4<f64>,
+) -> Result<Point2<f64>, OpenMvgError> {
     let x3d_h = x3d.to_homogeneous();
-    let x2d_h = p * x3d_h; // TODO: Is this correct?
-    let x2d = Point2::<f64>::from_homogeneous(x2d_h);
-    x2d.expect("Point was not homogeneous, projection failed.")
+    let x2d_h = p * x3d_h;
+    Point2::<f64>::from_homogeneous(x2d_h).ok_or(OpenMvgError::NonHomogeneousPoint)
 }
 
 #[cfg(test)]
@@ -189,7 +201,7 @@ mod tests {
         let r = Rotation3::from_euler_angles(0.0, 0.1, 0.2);
         let p = create_camera_matrix(c, r);
         let x3d = Point3::<f64>::new(1.0, -1.0, 2.0);
-        let x2d = get_projection(x3d, p);
+        let x2d = get_projection(x3d, p).unwrap();
         println!("c = {}", c);
         println!("r = {}", r.matrix());
         println!("x3d = {}", x3d);
@@ -210,7 +222,8 @@ mod tests {
             camera_poses.push(camera_pose);
         }
 
-        let x3d: Point3<f64> = triangulate(points2d.as_slice(), camera_poses.as_mut_slice());
+        let x3d: Point3<f64> =
+            triangulate(points2d.as_slice(), camera_poses.as_slice()).unwrap();
         println!("RAND x3d = {}", x3d);
     }
 
@@ -229,9 +242,12 @@ mod tests {
             // Create 3D point
             let x3d: Point3<_> = Vector3::<f64>::new_random().into();
             // Project onto each camera
-            let x2d_vec: Vec<_> = p_vec.iter().map(|&p| get_projection(x3d, p)).collect();
+            let x2d_vec: Vec<_> = p_vec
+                .iter()
+                .map(|&p| get_projection(x3d, p).unwrap())
+                .collect();
             // Reconstruct
-            let x3d_recon = triangulate(x2d_vec.as_slice(), &mut p_vec);
+            let x3d_recon = triangulate(x2d_vec.as_slice(), &p_vec).unwrap();
             let x3d_recon_h = x3d_recon.to_homogeneous();
             // Compare reconstruction with original
             assert!((x3d - x3d_recon).norm() < tol);
@@ -242,7 +258,7 @@ mod tests {
                 let x2d = x2d_vec[j];
                 let x2d_reproj_h = p * x3d_recon_h;
                 let x2d_reproj = Point2::<f64>::from_homogeneous(x2d_reproj_h)
-                    .expect("Reprojected 2D point was not homogeneous");
+                    .unwrap_or_else(|| panic!("Reprojected 2D point was not homogeneous"));
                 // Compare reprojection with original projection
                 assert!((x2d - x2d_reproj).norm() < tol);
             }
@@ -587,10 +603,11 @@ mod tests {
         let optsc = opts.clone();
 
         // Perform BA
-        let result = ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d, Some(opts));
+        let result = ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d, Some(opts))
+            .expect("bundle adjustment should succeed");
 
-        // The BA should suceed
-        assert_eq!(result, true);
+        // The BA should succeed
+        assert!(result);
 
         // Check that only the expected values changed
         let max_err = 1e-3;

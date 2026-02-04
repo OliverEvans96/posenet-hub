@@ -1,8 +1,9 @@
 // use async_std::channel;
-use std::{error::Error, net::SocketAddr};
+use std::net::SocketAddr;
 use tokio::sync::broadcast;
 
 use super::vrpn::{ffi, update_values};
+use crate::errors::MissingField;
 use crate::triangulator::LabeledPoses3D;
 
 pub struct VrpnConfig {
@@ -17,11 +18,15 @@ impl VrpnConfig {
             addr: format!("{}:{}", ip, port).parse()?,
         })
     }
+
+    pub fn try_default() -> anyhow::Result<Self> {
+        Self::new("PoseNet0", "0.0.0.0", 3883)
+    }
 }
 
 impl Default for VrpnConfig {
     fn default() -> Self {
-        VrpnConfig::new("PoseNet0", "0.0.0.0", 3883).expect("Default VRPN configuration invalid!")
+        Self::try_default().expect("default VRPN config 0.0.0.0:3883 must be valid")
     }
 }
 
@@ -36,29 +41,19 @@ impl VrpnServer {
         Self { config, poses3d_rx }
     }
 
-    pub async fn run(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn run(&mut self) -> anyhow::Result<()> {
         println!("PoseNet Hub VRPN service listening on {}", self.config.addr);
 
-        // TODO use config addr in create_server..
-        // let mut server = ffi::create_server(&self.config.device_name);
         let mut container = ffi::create_container();
         loop {
-            // Check for new pose from controller
             let message = self.poses3d_rx.recv().await?;
             let device_name = message.group_name + ":" + &self.config.device_name;
             println!("VRPN device: {}", device_name);
 
-            // Update values from pose if available
-            if message.poses.len() > 0 {
-                update_values(
-                    &mut container,
-                    &device_name,
-                    message.poses.into_iter().nth(0).unwrap(),
-                );
-                // update_values(&mut server, message.poses.first().unwrap());
+            if let Some(pose) = message.poses.into_iter().next() {
+                update_values(&mut container, &device_name, pose)?;
             }
 
-            // Talk to clients
             ffi::mainloop(&mut container);
         }
     }

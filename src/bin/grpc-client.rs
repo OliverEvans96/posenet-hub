@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 use structopt::StructOpt;
@@ -125,7 +124,7 @@ impl GrpcClientCommand {
     }
 }
 
-async fn connect(server: &str, port: u16) -> Result<HubServiceClient<Channel>, Box<dyn Error>> {
+async fn connect(server: &str, port: u16) -> anyhow::Result<HubServiceClient<Channel>> {
     let addr = format!("http://{}:{}", server, port);
     log::info!("Connecting to server at '{}'", addr);
     let client_result = HubServiceClient::connect(addr).await?;
@@ -137,7 +136,7 @@ async fn connect(server: &str, port: u16) -> Result<HubServiceClient<Channel>, B
 async fn stream_poses(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
-) -> Result<(), Box<dyn Error>> {
+) -> anyhow::Result<()> {
     log::info!("Sending hello");
     let name = grpc_client::hello(client, group_name.clone()).await?;
     log::info!("Streaming poses");
@@ -150,7 +149,7 @@ async fn offer_snapshots(
     client: &mut HubServiceClient<Channel>,
     group_name: String,
     image_path: Option<PathBuf>,
-) -> Result<(), Box<dyn Error>> {
+) -> anyhow::Result<()> {
     log::info!("Waiting for snapshot request in group '{}'", &group_name);
 
     let image_data = if let Some(image_path) = image_path {
@@ -278,7 +277,7 @@ async fn offer_snapshots(
 // }
 
 #[tokio::main]
-pub async fn main() -> Result<(), Box<dyn Error>> {
+pub async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
 

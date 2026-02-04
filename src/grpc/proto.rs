@@ -1,12 +1,11 @@
 tonic::include_proto!("posenet_vr");
 
 use rand::{distributions::Standard, prelude::Distribution};
-use std::convert::{TryFrom, TryInto};
-use std::error::Error;
-use std::fmt::Display;
+use std::convert::TryFrom;
 use std::path::Path;
 use uuid::Uuid;
 
+use crate::errors::{HubError, IoError, MissingField};
 use crate::utils::pop_n;
 
 // PoseNet returns 17 points on the body
@@ -135,60 +134,83 @@ impl From<(Vec<SPoint3>, f64)> for Pose3D {
     }
 }
 
-// 3D
-impl From<Pose2D> for (Vec<SPoint2>, f64) {
-    fn from(pose: Pose2D) -> Self {
-        // TODO: Allow missing points
-        (
-            vec![
-                pose.nose.unwrap().into(),
-                pose.left_eye.unwrap().into(),
-                pose.right_eye.unwrap().into(),
-                pose.left_ear.unwrap().into(),
-                pose.right_ear.unwrap().into(),
-                pose.left_shoulder.unwrap().into(),
-                pose.right_shoulder.unwrap().into(),
-                pose.left_elbow.unwrap().into(),
-                pose.right_elbow.unwrap().into(),
-                pose.left_wrist.unwrap().into(),
-                pose.right_wrist.unwrap().into(),
-                pose.left_hip.unwrap().into(),
-                pose.right_hip.unwrap().into(),
-                pose.left_knee.unwrap().into(),
-                pose.right_knee.unwrap().into(),
-                pose.left_ankle.unwrap().into(),
-                pose.right_ankle.unwrap().into(),
-            ],
-            pose.score,
-        )
+// Pose keypoint names for error messages
+const POSE_KEYPOINTS: [&str; 17] = [
+    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+    "left_wrist", "right_wrist", "left_hip", "right_hip",
+    "left_knee", "right_knee", "left_ankle", "right_ankle",
+];
+
+fn pose2d_to_spoints(pose: &Pose2D) -> Result<(Vec<SPoint2>, f64), MissingField> {
+    let opts = [
+        pose.nose.as_ref(),
+        pose.left_eye.as_ref(),
+        pose.right_eye.as_ref(),
+        pose.left_ear.as_ref(),
+        pose.right_ear.as_ref(),
+        pose.left_shoulder.as_ref(),
+        pose.right_shoulder.as_ref(),
+        pose.left_elbow.as_ref(),
+        pose.right_elbow.as_ref(),
+        pose.left_wrist.as_ref(),
+        pose.right_wrist.as_ref(),
+        pose.left_hip.as_ref(),
+        pose.right_hip.as_ref(),
+        pose.left_knee.as_ref(),
+        pose.right_knee.as_ref(),
+        pose.left_ankle.as_ref(),
+        pose.right_ankle.as_ref(),
+    ];
+    let mut out = Vec::with_capacity(17);
+    for (i, opt) in opts.iter().enumerate() {
+        let p = opt
+            .ok_or_else(|| MissingField::Keypoint(POSE_KEYPOINTS[i].to_string()))?;
+        out.push(p.clone().into());
+    }
+    Ok((out, pose.score))
+}
+
+fn pose3d_to_spoints(pose: &Pose3D) -> Result<(Vec<SPoint3>, f64), MissingField> {
+    let opts = [
+        pose.nose.as_ref(),
+        pose.left_eye.as_ref(),
+        pose.right_eye.as_ref(),
+        pose.left_ear.as_ref(),
+        pose.right_ear.as_ref(),
+        pose.left_shoulder.as_ref(),
+        pose.right_shoulder.as_ref(),
+        pose.left_elbow.as_ref(),
+        pose.right_elbow.as_ref(),
+        pose.left_wrist.as_ref(),
+        pose.right_wrist.as_ref(),
+        pose.left_hip.as_ref(),
+        pose.right_hip.as_ref(),
+        pose.left_knee.as_ref(),
+        pose.right_knee.as_ref(),
+        pose.left_ankle.as_ref(),
+        pose.right_ankle.as_ref(),
+    ];
+    let mut out = Vec::with_capacity(17);
+    for (i, opt) in opts.iter().enumerate() {
+        let p = opt
+            .ok_or_else(|| MissingField::Keypoint(POSE_KEYPOINTS[i].to_string()))?;
+        out.push(p.clone().into());
+    }
+    Ok((out, pose.score))
+}
+
+impl TryFrom<Pose2D> for (Vec<SPoint2>, f64) {
+    type Error = MissingField;
+    fn try_from(pose: Pose2D) -> Result<Self, Self::Error> {
+        pose2d_to_spoints(&pose)
     }
 }
 
-impl From<Pose3D> for (Vec<SPoint3>, f64) {
-    fn from(pose: Pose3D) -> Self {
-        // TODO: Allow missing points
-        (
-            vec![
-                pose.nose.unwrap().into(),
-                pose.left_eye.unwrap().into(),
-                pose.right_eye.unwrap().into(),
-                pose.left_ear.unwrap().into(),
-                pose.right_ear.unwrap().into(),
-                pose.left_shoulder.unwrap().into(),
-                pose.right_shoulder.unwrap().into(),
-                pose.left_elbow.unwrap().into(),
-                pose.right_elbow.unwrap().into(),
-                pose.left_wrist.unwrap().into(),
-                pose.right_wrist.unwrap().into(),
-                pose.left_hip.unwrap().into(),
-                pose.right_hip.unwrap().into(),
-                pose.left_knee.unwrap().into(),
-                pose.right_knee.unwrap().into(),
-                pose.left_ankle.unwrap().into(),
-                pose.right_ankle.unwrap().into(),
-            ],
-            pose.score,
-        )
+impl TryFrom<Pose3D> for (Vec<SPoint3>, f64) {
+    type Error = MissingField;
+    fn try_from(pose: Pose3D) -> Result<Self, Self::Error> {
+        pose3d_to_spoints(&pose)
     }
 }
 
@@ -214,55 +236,64 @@ impl From<Vec<f64>> for Point3D {
     }
 }
 
-impl From<Pose3D> for Vec<f64> {
-    fn from(pose: Pose3D) -> Self {
+impl TryFrom<Pose3D> for Vec<f64> {
+    type Error = MissingField;
+    fn try_from(pose: Pose3D) -> Result<Self, Self::Error> {
+        let (points, score) = pose3d_to_spoints(&pose)?;
         let mut values = Vec::<f64>::with_capacity(NUM_CHANNELS);
-        values.extend(pose.nose.unwrap());
-        values.extend(pose.left_eye.unwrap());
-        values.extend(pose.right_eye.unwrap());
-        values.extend(pose.left_ear.unwrap());
-        values.extend(pose.right_ear.unwrap());
-        values.extend(pose.left_shoulder.unwrap());
-        values.extend(pose.right_shoulder.unwrap());
-        values.extend(pose.left_elbow.unwrap());
-        values.extend(pose.right_elbow.unwrap());
-        values.extend(pose.left_wrist.unwrap());
-        values.extend(pose.right_wrist.unwrap());
-        values.extend(pose.left_hip.unwrap());
-        values.extend(pose.right_hip.unwrap());
-        values.extend(pose.left_knee.unwrap());
-        values.extend(pose.right_knee.unwrap());
-        values.extend(pose.left_ankle.unwrap());
-        values.extend(pose.right_ankle.unwrap());
-        values.extend(vec![pose.score]);
-        assert_eq!(values.len(), NUM_CHANNELS);
-
-        values
+        for p in points {
+            values.extend([p.0.x, p.0.y, p.0.z, p.1]);
+        }
+        values.push(score);
+        Ok(values)
     }
 }
 
-impl From<Vec<f64>> for Pose3D {
-    fn from(mut values: Vec<f64>) -> Self {
-        Pose3D {
-            nose: Some(pop_n(&mut values, NDIM).into()),
-            left_eye: Some(pop_n(&mut values, NDIM).into()),
-            right_eye: Some(pop_n(&mut values, NDIM).into()),
-            left_ear: Some(pop_n(&mut values, NDIM).into()),
-            right_ear: Some(pop_n(&mut values, NDIM).into()),
-            left_shoulder: Some(pop_n(&mut values, NDIM).into()),
-            right_shoulder: Some(pop_n(&mut values, NDIM).into()),
-            left_elbow: Some(pop_n(&mut values, NDIM).into()),
-            right_elbow: Some(pop_n(&mut values, NDIM).into()),
-            left_wrist: Some(pop_n(&mut values, NDIM).into()),
-            right_wrist: Some(pop_n(&mut values, NDIM).into()),
-            left_hip: Some(pop_n(&mut values, NDIM).into()),
-            right_hip: Some(pop_n(&mut values, NDIM).into()),
-            left_knee: Some(pop_n(&mut values, NDIM).into()),
-            right_knee: Some(pop_n(&mut values, NDIM).into()),
-            left_ankle: Some(pop_n(&mut values, NDIM).into()),
-            right_ankle: Some(pop_n(&mut values, NDIM).into()),
-            score: values.pop().unwrap(),
+impl TryFrom<Vec<f64>> for Pose3D {
+    type Error = MissingField;
+    fn try_from(mut values: Vec<f64>) -> Result<Self, Self::Error> {
+        if values.len() < NUM_CHANNELS {
+            return Err(MissingField::MissingScore);
         }
+        let score = values.pop().ok_or(MissingField::MissingScore)?;
+        // pop_n takes from the end, so first pop_n is right_ankle, last is nose
+        let right_ankle = pop_n(&mut values, NDIM);
+        let left_ankle = pop_n(&mut values, NDIM);
+        let right_knee = pop_n(&mut values, NDIM);
+        let left_knee = pop_n(&mut values, NDIM);
+        let right_hip = pop_n(&mut values, NDIM);
+        let left_hip = pop_n(&mut values, NDIM);
+        let right_wrist = pop_n(&mut values, NDIM);
+        let left_wrist = pop_n(&mut values, NDIM);
+        let right_elbow = pop_n(&mut values, NDIM);
+        let left_elbow = pop_n(&mut values, NDIM);
+        let right_shoulder = pop_n(&mut values, NDIM);
+        let left_shoulder = pop_n(&mut values, NDIM);
+        let right_ear = pop_n(&mut values, NDIM);
+        let left_ear = pop_n(&mut values, NDIM);
+        let right_eye = pop_n(&mut values, NDIM);
+        let left_eye = pop_n(&mut values, NDIM);
+        let nose = pop_n(&mut values, NDIM);
+        Ok(Pose3D {
+            nose: Some(Point3D::from(nose)),
+            left_eye: Some(Point3D::from(left_eye)),
+            right_eye: Some(Point3D::from(right_eye)),
+            left_ear: Some(Point3D::from(left_ear)),
+            right_ear: Some(Point3D::from(right_ear)),
+            left_shoulder: Some(Point3D::from(left_shoulder)),
+            right_shoulder: Some(Point3D::from(right_shoulder)),
+            left_elbow: Some(Point3D::from(left_elbow)),
+            right_elbow: Some(Point3D::from(right_elbow)),
+            left_wrist: Some(Point3D::from(left_wrist)),
+            right_wrist: Some(Point3D::from(right_wrist)),
+            left_hip: Some(Point3D::from(left_hip)),
+            right_hip: Some(Point3D::from(right_hip)),
+            left_knee: Some(Point3D::from(left_knee)),
+            right_knee: Some(Point3D::from(right_knee)),
+            left_ankle: Some(Point3D::from(left_ankle)),
+            right_ankle: Some(Point3D::from(right_ankle)),
+            score,
+        })
     }
 }
 
@@ -352,47 +383,26 @@ impl From<image::DynamicImage> for Image {
 
 impl Image {
     /// Read image from file
-    pub fn from_path(image_path: &Path) -> Result<Self, Box<dyn Error>> {
-        Ok(image::open(image_path)?.into())
+    pub fn from_path(image_path: &Path) -> Result<Self, HubError> {
+        let img = image::open(image_path)
+            .map_err(IoError::from)
+            .map_err(HubError::from)?;
+        Ok(img.into())
     }
 }
 
 impl Distribution<Image> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> Image {
-        let width: usize = 30;
-        let height: usize = 10;
-        let num_pixels = width * height;
-        // Three channels: (R, G, B) for each pixel
-        let num_bytes = 3 * num_pixels;
-
+        const W: u32 = 30;
+        const H: u32 = 10;
+        let num_bytes = (W * H * 3) as usize;
         Image {
-            width: width.try_into().unwrap(),
-            height: height.try_into().unwrap(),
+            width: W,
+            height: H,
             data: (0..num_bytes).map(|_| rng.gen()).collect(),
         }
     }
 }
-
-// TODO: This doesn't seem like the best error-handling approach
-// (this should be one variant of an enum, and it's more general than proto.rs)
-#[derive(Debug)]
-pub struct MissingFieldError {
-    field_name: String,
-}
-
-impl MissingFieldError {
-    fn new(field_name: String) -> Self {
-        Self { field_name }
-    }
-}
-
-impl Display for MissingFieldError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("Error: Missing field '{}'", self.field_name))
-    }
-}
-
-impl Error for MissingFieldError {}
 
 pub struct CameraUniqueIdentifier {
     pub group_name: String,
@@ -400,24 +410,22 @@ pub struct CameraUniqueIdentifier {
 }
 
 impl TryFrom<CameraIdentifier> for CameraUniqueIdentifier {
-    type Error = MissingFieldError;
+    type Error = MissingField;
 
     fn try_from(value: CameraIdentifier) -> Result<Self, Self::Error> {
         let CameraIdentifier {
             group_name,
             camera_name,
         } = value;
-        if !camera_name.is_empty() {
-            if !group_name.is_empty() {
-                Ok(Self {
-                    group_name,
-                    camera_name,
-                })
-            } else {
-                Err(MissingFieldError::new("group_name".to_string()))
-            }
+        if camera_name.is_empty() {
+            Err(MissingField::CameraName)
+        } else if group_name.is_empty() {
+            Err(MissingField::GroupName)
         } else {
-            Err(MissingFieldError::new("camera_name".to_string()))
+            Ok(Self {
+                group_name,
+                camera_name,
+            })
         }
     }
 }

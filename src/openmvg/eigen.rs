@@ -221,94 +221,60 @@ where
 
 // impl Debug
 
+fn debug_cxx_str(cxx_str: &cxx::UniquePtr<cxx::CxxString>) -> String {
+    cxx_str
+        .as_ref()
+        .and_then(|s| s.to_str().ok())
+        .map(String::from)
+        .unwrap_or_else(|| "<null or invalid utf8>".to_string())
+}
+
 impl fmt::Debug for ffi::Mat34 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_mat34(self);
-        let s = cxx_str
-            .as_ref()
-            .expect("Pointer had no value.")
-            .to_str()
-            .expect("Could not convert string");
-
-        f.write_str(s)
+        f.write_str(&debug_cxx_str(&cxx_str))
     }
 }
 
 impl fmt::Debug for ffi::Mat3 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_mat3(self);
-        let s = cxx_str
-            .as_ref()
-            .expect("Pointer had no value.")
-            .to_str()
-            .expect("Could not convert string");
-
-        f.write_str(s)
+        f.write_str(&debug_cxx_str(&cxx_str))
     }
 }
 
 impl fmt::Debug for ffi::Mat2X {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_mat2x(self);
-        let s = cxx_str
-            .as_ref()
-            .expect("Pointer had no value.")
-            .to_str()
-            .expect("Could not convert string");
-
-        f.write_str(s)
+        f.write_str(&debug_cxx_str(&cxx_str))
     }
 }
 
 impl fmt::Debug for ffi::Mat3X {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_mat3x(self);
-        let s = cxx_str
-            .as_ref()
-            .expect("Pointer had no value.")
-            .to_str()
-            .expect("Could not convert string");
-
-        f.write_str(s)
+        f.write_str(&debug_cxx_str(&cxx_str))
     }
 }
 
 impl fmt::Debug for ffi::Vec3 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_vec3(self);
-        let s = cxx_str
-            .as_ref()
-            .expect("Pointer had no value.")
-            .to_str()
-            .expect("Could not convert string");
-
-        f.write_str(s)
+        f.write_str(&debug_cxx_str(&cxx_str))
     }
 }
 
 impl fmt::Debug for ffi::Vec4 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_vec4(self);
-        let s = cxx_str
-            .as_ref()
-            .expect("Pointer had no value.")
-            .to_str()
-            .expect("Could not convert string");
-
-        f.write_str(s)
+        f.write_str(&debug_cxx_str(&cxx_str))
     }
 }
 
-impl<'a> fmt::Debug for ffi::Vec2 {
+impl fmt::Debug for ffi::Vec2 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let cxx_str = ffi::format_vec2(self);
-        let s = cxx_str
-            .as_ref()
-            .expect("Pointer had no value.")
-            .to_str()
-            .expect("Could not convert string");
-
-        f.write_str(s)
+        f.write_str(&debug_cxx_str(&cxx_str))
     }
 }
 

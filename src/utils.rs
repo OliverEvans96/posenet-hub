@@ -1,6 +1,7 @@
-use std::error::Error;
 use std::fmt::Debug;
 use tokio::sync::mpsc::Receiver;
+
+use crate::errors::InvalidInput;
 
 // pub async fn read_rx<T: Debug>(name: &str, rx: Receiver<T>) -> Result<(), Box<dyn Error>> {
 //     println!("Listening for {}", name);
@@ -27,28 +28,33 @@ use tokio::sync::mpsc::Receiver;
 ///  [ 2, 12, 22, 32, 42],
 ///  [ 3, 13, 23, 33, 43],
 ///  [ 4, 14, 24, 34, 44]]
-pub fn transpose_vecvec<U, T>(orig: &[U]) -> Vec<Vec<T>>
+pub fn transpose_vecvec<U, T>(orig: &[U]) -> Result<Vec<Vec<T>>, InvalidInput>
 where
-    // Allow orig: &[&[T]] OR Vec<Vec<T>>
-    // See https://stackoverflow.com/a/50056925/4228052
     U: AsRef<[T]>,
     T: Clone,
 {
     let outer_len = orig.len();
+    if outer_len == 0 {
+        return Ok(Vec::new());
+    }
     let inner_len = orig[0].as_ref().len();
 
-    // Assert that all subslices have the same length.
-    for inner in orig[1..].iter() {
-        assert_eq!(inner.as_ref().len(), inner_len);
+    for (i, inner) in orig[1..].iter().enumerate() {
+        if inner.as_ref().len() != inner_len {
+            return Err(InvalidInput::Message(format!(
+                "transpose_vecvec: row 0 has len {}, row {} has len {}",
+                inner_len,
+                i + 1,
+                inner.as_ref().len()
+            )));
+        }
     }
 
-    // Initialize the result
     let mut result = Vec::<Vec<T>>::with_capacity(inner_len);
     for _ in 0..inner_len {
         result.push(Vec::<T>::with_capacity(outer_len));
     }
 
-    // Fill the result
     for inner in orig {
         let slice = inner.as_ref();
         for (j, el) in slice.iter().enumerate() {
@@ -56,7 +62,7 @@ where
         }
     }
 
-    result
+    Ok(result)
 }
 
 /// Pop last n elements from Vec
