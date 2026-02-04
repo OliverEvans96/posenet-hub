@@ -6,10 +6,7 @@
     };
     nixpkgs.url = "nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    crane = {
-      url = "github:ipetkov/crane";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    crane.url = "github:ipetkov/crane";
     proto = {
       type = "git";
       url =
@@ -38,20 +35,44 @@
             ln -s $out/include/eigen3/Eigen $out/include/Eigen
           '';
         });
-        myOpenMVG = pkgs.openmvg.overrideAttrs (oldAttrs: rec {
-          # Mimic cpp-deps.Dockerfile
-          cmakeFlags = ([
-            "-DOpenMVG_BUILD_TYPE=RELEASE"
-            "-DOpenMVG_BUILD_SHARED=ON"
-            "-DOpenMVG_BUILD_DOC=OFF"
-            "-DOpenMVG_BUILD_EXAMPLES=OFF"
-            "-DOpenMVG_BUILD_GUI_SOFTWARES=OFF"
-            "-DOpenMVG_BUILD_SOFTWARES=OFF"
-            "-DOpenMVG_USE_OPENMP=OFF"
-            "-DUSE_OPENMP=OFF"
-            "-DTARGET_ARCHITECTURE=generic"
-          ] ++ oldAttrs.cmakeFlags);
-        });
+        # openMVG 1.6 (matches build/cpp-deps.Dockerfile): builds internal
+        # libopenMVG_ceres and libopenMVG_cxsparse required by our build.rs
+        openmvg_1_6_src = pkgs.fetchFromGitHub {
+          owner = "openMVG";
+          repo = "openMVG";
+          rev = "v1.6";
+          sha256 = "sha256-MDQeRPa6p4qQ7+jciCBRiSFm89k95RHsl+zE9xuIOlc=";
+          fetchSubmodules = true;
+        };
+        myOpenMVG = pkgs.stdenv.mkDerivation {
+          pname = "openmvg";
+          version = "1.6";
+          src = openmvg_1_6_src;
+          nativeBuildInputs = [ pkgs.cmake ];
+          buildInputs = [ myEigen ];
+          # Vendored CoinUtils triggers -Werror=format-security with modern GCC
+          hardeningDisable = [ "format" ];
+          # Out-of-tree build like cpp-deps.Dockerfile: cmake ../openMVG/src from build dir
+          preConfigure = "mkdir -p build && cd build";
+          configurePhase = ''
+            runHook preConfigure
+            cmake -DCMAKE_INSTALL_PREFIX=$out \
+              -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+              -DCMAKE_BUILD_TYPE=RELEASE \
+              -DOpenMVG_BUILD_DOC=OFF \
+              -DOpenMVG_BUILD_EXAMPLES=OFF \
+              -DOpenMVG_BUILD_GUI_SOFTWARES=OFF \
+              -DOpenMVG_BUILD_SOFTWARES=OFF \
+              -DOpenMVG_USE_OPENMP=OFF \
+              -DUSE_OPENMP=OFF \
+              -DOPENMP=OFF \
+              -DTARGET_ARCHITECTURE=generic \
+              ../src
+          '';
+          # Nix runs each phase in a fresh shell; build dir is $NIX_BUILD_TOP/source/build
+          buildPhase = "cd $NIX_BUILD_TOP/source/build && make -j$NIX_BUILD_CORES";
+          installPhase = "cd $NIX_BUILD_TOP/source/build && make install";
+        };
       in rec {
         defaultPackage = crane.lib.${system}.buildPackage {
           nativeBuildInputs = with pkgs; [
@@ -117,9 +138,9 @@
           # build-time deps
           # from https://blog.thomasheartman.com/posts/bevy-getting-started-on-nixos
           nativeBuildInputs = with pkgs; [
-            rustc
-            cargo
-            rustfmt
+            # rustc
+            # cargo
+            # rustfmt
 
             lld
             clang
@@ -137,13 +158,16 @@
           # "failed to invoke protoc
           # (hint: https://docs.rs/prost-build/#sourcing-protoc):
           # No such file or directory (os error 2)"
-          # PROTOC = "${pkgs.grpc-tools}/bin/protoc";
+          PROTOC = "${pkgs.grpc-tools}/bin/protoc";
           # FIXME (find a better solution - this only works on my laptop)
           # PROTOC_INCLUDE =
           #   "/home/oliver/ucsd/posenet-vr/hub/proto:${pkgs.protobuf}/include";
 
           # FIXME (without this env var)
           # CPLUS_INCLUDE_PATH = "${myEigen}/include/eigen3";
+          OMVG = "${myOpenMVG}";
+          EIGEN_INCLUDE_DIR = "${myEigen}/include/eigen3";
+          LIBRARY_PATH = "${myOpenMVG}/lib";
         };
       });
 }

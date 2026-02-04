@@ -75,6 +75,9 @@ fn build_cxx() -> UnitResult {
     // NOTE: `cargo test` fails if this comes before cxx_build::bridge.
     // The error is undefined reference to `openMVG::TriangulateNView(...)'
     // Although strangely, running the same function from a binary works.
+    if let Ok(omvg_path) = env::var("OMVG") {
+        println!("cargo:rustc-link-search=native={}/lib", omvg_path);
+    }
     println!("cargo:rustc-link-lib=openMVG_sfm");
     println!("cargo:rustc-link-lib=openMVG_ceres");
     println!("cargo:rustc-link-lib=openMVG_cxsparse");
