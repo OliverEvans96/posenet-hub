@@ -12,6 +12,8 @@ use crate::grpc::proto::{CalibrationParameters, CameraInfo, Pose2D, Pose3D, SPoi
 use crate::openmvg::openmvg::triangulate_many;
 use crate::utils::transpose_vecvec;
 
+type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
 #[derive(Debug, Clone)]
 pub struct TriangulatorConfig {
     /// Poses older than this will be ignored
@@ -149,14 +151,13 @@ impl Triangulator {
         }
     }
 
-    // pub async fn run(&self) -> Result<(), BoxError> {
-    //     try_join!(
-    //         self.listen_for_poses(),
-    //         self.listen_for_cameras(),
-    //         self.triangulate()
-    //     )?;
-    //     Ok(())
-    // }
+    /// Run the triangulator: listen for poses and cameras, then triangulate on an interval.
+    /// Stub: full triangulate loop is commented out; this keeps the task alive.
+    pub async fn run(&self) -> Result<(), BoxError> {
+        loop {
+            sleep(self.config.poll_interval).await;
+        }
+    }
 
     // pub async fn triangulate(&self) -> Result<(), BoxError> {
     //     let mut i: i32 = 0;

@@ -15,31 +15,38 @@ async fn main() -> anyhow::Result<()> {
 
     log::info!("Hub main start");
 
-    // // Create communication channels
-    // let (cameras_tx, cameras_rx) = unbounded_channel::<CameraInfo>();
-    // let (snapshots_tx, snapshots_rx) = unbounded_channel::<Snapshot>();
-    // // let (poses3d_tx, poses3d_rx) = channel::unbounded::<Option<Pose3D>>();
-    // let (poses3d_bcast_tx, poses3d_bcast_rx) = broadcast::channel::<LabeledPoses3D>(100);
+    let (cameras_tx, cameras_rx) = unbounded_channel::<CameraInfo>();
+    let (snapshots_tx, snapshots_rx) = unbounded_channel::<Snapshot>();
+    let (poses3d_bcast_tx, poses3d_bcast_rx) = broadcast::channel::<LabeledPoses3D>(100);
 
-    // // Create controller
-    // let triangulator_config = TriangulatorConfig::default();
-    // let controller = Controller::new(
-    //     triangulator_config,
-    //     cameras_rx,
-    //     snapshots_rx,
-    //     poses3d_bcast_tx,
-    // );
+    let triangulator_config = TriangulatorConfig::default();
+    let controller = Controller::new(
+        triangulator_config,
+        cameras_rx,
+        snapshots_rx,
+        poses3d_bcast_tx,
+    );
 
-    // // Create gRPC server
-    // let grpc_config = GrpcConfig::default();
-    // let grpc_server = GrpcServer::new(grpc_config, cameras_tx, snapshots_tx);
+    let grpc_config = GrpcConfig::default();
+    let grpc_server = GrpcServer::new(grpc_config, cameras_tx, snapshots_tx);
 
-    // // Create VRPN server
-    // let vrpn_config = VrpnConfig::default();
-    // let mut vrpn_server = VrpnServer::new(vrpn_config, poses3d_bcast_rx);
+    let vrpn_config = VrpnConfig::default();
+    let mut vrpn_server = VrpnServer::new(vrpn_config, poses3d_bcast_rx);
 
-    // // Run all three components concurrently
-    // try_join!(controller.run(), grpc_server.run(), vrpn_server.run())?;
+    let run_controller = async move {
+        match controller.run().await {
+            Ok(()) => Ok(()),
+            Err(e) => Err(anyhow::Error::msg(e.to_string())),
+        }
+    };
+    let run_grpc = grpc_server.run();
+    let run_vrpn = async move {
+        match vrpn_server.run().await {
+            Ok(()) => Ok(()),
+            Err(e) => Err(anyhow::Error::msg(e.to_string())),
+        }
+    };
+    try_join!(run_controller, run_grpc, run_vrpn)?;
     log::info!("Hub main end");
 
     Ok(())

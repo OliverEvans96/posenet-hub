@@ -4,9 +4,11 @@ use nalgebra::{Matrix2xX, Matrix3, Matrix3xX, Matrix4, Point3, Vector2, Vector3}
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::sync::Arc;
 use std::task::Poll;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use std::{net::SocketAddr, pin::Pin};
+use uuid::Uuid;
 use thiserror::Error;
 use tokio::select;
 use tokio::sync::mpsc::Receiver;
@@ -21,9 +23,8 @@ use super::proto::hub_service_server::{HubService, HubServiceServer};
 use super::proto::*;
 
 pub struct HubServer {
-    // TODO: Are these still necessary? Redundant with new structs at all?
-    cameras_tx: mpsc::Sender<CameraInfo>,
-    snapshots_tx: mpsc::Sender<Snapshot>,
+    cameras_tx: mpsc::UnboundedSender<CameraInfo>,
+    snapshots_tx: mpsc::UnboundedSender<Snapshot>,
     /// snapshot request stream channel senders,
     /// indexed by group name, then camera name
     ///
@@ -39,12 +40,19 @@ pub struct HubServer {
     session_tokens: RwLock<HashMap<String, RwLock<HashMap<String, SessionToken>>>>,
     /// Latest streamed snapshots
     /// indexed by group name, then camera name
-    stream_cache: RwLock<HashMap<String, RwLock<HashMap<String, Snapshot>>>>,
+    /// Arc so StartStreaming tasks can update it
+    stream_cache: Arc<RwLock<HashMap<String, RwLock<HashMap<String, Snapshot>>>>>,
+    /// Which groups are currently streaming and their params
+    stream_state: Arc<RwLock<HashMap<String, StreamParameters>>>,
     /// Active camera control channels, indexed by session token
     /// TODO: Use token data as key, not whole token?
     control_channels: RwLock<HashMap<SessionToken, mpsc::Sender<CameraControlCommand>>>,
+    /// Pending control stream receivers; one per session, consumed when camera calls CameraControl
+    pending_control_rx: RwLock<HashMap<SessionToken, mpsc::Receiver<CameraControlCommand>>>,
     /// Channels to route incoming data from cameras, indexed by command token
     data_channels: RwLock<HashMap<CommandToken, mpsc::Sender<CommandResponseMessage>>>,
+    /// Stored CameraInfo per camera (from Hello), for GetCameraInfo and TakeSnapshots
+    camera_info: RwLock<HashMap<CameraIdentifier, CameraInfo>>,
 }
 
 #[tonic::async_trait]
@@ -306,11 +314,32 @@ impl HubService for HubServer {
 
     async fn hello(&self, request: Request<CameraInfo>) -> Result<Response<SessionToken>, Status> {
         let info = request.into_inner();
-        self.cameras_tx.send(info).await.map_err(|_| {
-            Status::internal("Camera channel was closed")
-        })?;
+        let which_camera = info
+            .which_camera
+            .clone()
+            .ok_or_else(|| Status::invalid_argument("Hello requires which_camera"))?;
+        let group_name = which_camera.group_name.clone();
+        let camera_name = which_camera.camera_name.clone();
 
         let token = SessionToken::new();
+
+        // Register session and control channel
+        {
+            let mut tokens_hm = self.session_tokens.write();
+            let group_hm = tokens_hm
+                .entry(group_name.clone())
+                .or_insert_with(|| RwLock::new(HashMap::new()));
+            group_hm.write().insert(camera_name.clone(), token.clone());
+        }
+        let (ctrl_tx, ctrl_rx) = mpsc::channel(32);
+        self.control_channels.write().insert(token.clone(), ctrl_tx);
+        self.pending_control_rx.write().insert(token.clone(), ctrl_rx);
+        self.camera_info
+            .write()
+            .insert(which_camera.clone(), info.clone());
+        self.cameras_tx.send(info).map_err(|_| {
+            Status::internal("Camera channel was closed")
+        })?;
 
         Ok(Response::new(token))
     }
@@ -319,7 +348,21 @@ impl HubService for HubServer {
         &self,
         request: Request<SessionToken>,
     ) -> Result<Response<Self::CameraControlStream>, Status> {
-        todo!()
+        let token = request.into_inner();
+        let mut rx = self
+            .pending_control_rx
+            .write()
+            .remove(&token)
+            .ok_or_else(|| {
+                Status::failed_precondition("Unknown or already used session token")
+            })?;
+        let (wrap_tx, wrap_rx) = mpsc::channel(32);
+        tokio::spawn(async move {
+            while let Some(cmd) = rx.recv().await {
+                let _ = wrap_tx.send(Ok(cmd)).await;
+            }
+        });
+        Ok(Response::new(ReceiverStream::new(wrap_rx)))
     }
 
     async fn camera_data_sink(
@@ -381,44 +424,218 @@ impl HubService for HubServer {
 
     async fn list_groups(
         &self,
-        request: Request<ListGroupsRequest>,
+        _request: Request<ListGroupsRequest>,
     ) -> Result<Response<ListGroupsResponse>, Status> {
-        todo!()
+        let group_names: Vec<String> = self.session_tokens.read().keys().cloned().collect();
+        Ok(Response::new(ListGroupsResponse { group_names }))
     }
 
     async fn list_cameras(
         &self,
         request: Request<ListCamerasRequest>,
     ) -> Result<Response<ListCamerasResponse>, Status> {
-        todo!()
+        let group_name = request.into_inner().group_name;
+        let camera_names = self
+            .session_tokens
+            .read()
+            .get(&group_name)
+            .map(|group_hm| group_hm.read().keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        Ok(Response::new(ListCamerasResponse { camera_names }))
     }
 
     async fn get_camera_info(
         &self,
         request: Request<CameraIdentifier>,
     ) -> Result<Response<CameraInfo>, Status> {
-        todo!()
+        let which_camera = request.into_inner();
+        let info = self
+            .camera_info
+            .read()
+            .get(&which_camera)
+            .cloned()
+            .ok_or_else(|| Status::not_found("Camera not found"))?;
+        Ok(Response::new(info))
     }
 
     async fn stream_control(
         &self,
         request: Request<StreamControlRequest>,
     ) -> Result<Response<StreamStatus>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let group_name = req.group_name;
+        match req.command {
+            Some(stream_control_request::Command::StartStreaming(start)) => {
+                let params = start
+                    .params
+                    .ok_or_else(|| Status::invalid_argument("StartStreaming requires params"))?;
+                let which_camera = CameraIdentifier {
+                    group_name: group_name.clone(),
+                    camera_name: String::new(),
+                };
+                let command =
+                    camera_control_command::Command::StartStreaming(StartStreamingCommand {
+                        params: Some(params.clone()),
+                    });
+                let execution_futures = self
+                    .execute_command(which_camera, command)
+                    .await
+                    .map_err(|e| Status::internal(e.to_string()))?;
+                self.stream_state.write().insert(group_name.clone(), params.clone());
+                let execution_results = join_all(execution_futures).await;
+                let stream_cache = self.stream_cache.clone();
+                let snapshots_tx = self.snapshots_tx.clone();
+                let stream_state = self.stream_state.clone();
+                for (camera, stream) in execution_results {
+                    let group_name = group_name.clone();
+                    let stream_cache = stream_cache.clone();
+                    let snapshots_tx = snapshots_tx.clone();
+                    let stream_state = stream_state.clone();
+                    tokio::spawn(async move {
+                        pin_mut!(stream);
+                        while let Some(response) = stream.next().await {
+                            if let Some(command_response::Response::Snapshot(snapshot)) =
+                                response.response
+                            {
+                                let (g, c) = snapshot
+                                    .which_camera
+                                    .as_ref()
+                                    .map(|id| (id.group_name.clone(), id.camera_name.clone()))
+                                    .unwrap_or_else(|| (String::new(), String::new()));
+                                if !g.is_empty() && !c.is_empty() {
+                                    stream_cache
+                                        .write()
+                                        .entry(g.clone())
+                                        .or_insert_with(|| RwLock::new(HashMap::new()))
+                                        .write()
+                                        .insert(c, snapshot.clone());
+                                    let _ = snapshots_tx.send(snapshot);
+                                }
+                            }
+                        }
+                        // Stream ended; remove this group from stream_state if no other refs
+                        stream_state.write().remove(&group_name);
+                    });
+                }
+                Ok(Response::new(StreamStatus {
+                    is_streaming: true,
+                    params: Some(params),
+                }))
+            }
+            Some(stream_control_request::Command::StopStreaming(_)) => {
+                let which_camera = CameraIdentifier {
+                    group_name: group_name.clone(),
+                    camera_name: String::new(),
+                };
+                let command =
+                    camera_control_command::Command::StopStreaming(StopStreamingCommand {});
+                let _ = self.execute_command(which_camera, command).await;
+                self.stream_state.write().remove(&group_name);
+                Ok(Response::new(StreamStatus {
+                    is_streaming: false,
+                    params: None,
+                }))
+            }
+            None => Err(Status::invalid_argument("StreamControlRequest requires command")),
+        }
     }
 
     async fn take_snapshots(
         &self,
         request: Request<ServerSnapshotRequest>,
     ) -> Result<Response<ServerSnapshotResponse>, Status> {
-        todo!()
+        let req = request.into_inner();
+        let which_camera = req
+            .which_camera
+            .ok_or_else(|| Status::invalid_argument("TakeSnapshots requires which_camera"))?;
+        let want_pose3d = req.want_pose3d;
+        let command = camera_control_command::Command::TakeSnapshot(TakeSnapshotCommand {
+            params: req.params,
+        });
+        let execution_futures = self
+            .execute_command(which_camera.clone(), command)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+        let execution_results = join_all(execution_futures).await;
+        let timeout = Duration::from_secs(5);
+        let mut snapshots = Vec::new();
+        for (_camera, mut stream) in execution_results {
+            pin_mut!(stream);
+            let first = tokio::time::timeout(timeout, stream.next()).await;
+            if let Ok(Some(response)) = first {
+                if let Some(command_response::Response::Snapshot(snapshot)) = response.response {
+                    snapshots.push(snapshot);
+                }
+            }
+        }
+        let snapshot_id = Uuid::new_v4().to_string();
+        let timestamp = SystemTime::now();
+        let pose3d = if want_pose3d && snapshots.len() >= 2 {
+            let camera_info_hm = self.camera_info.read();
+            let poses: Vec<Pose2D> = snapshots
+                .iter()
+                .filter_map(|s| s.poses.first().cloned())
+                .collect();
+            if poses.len() == snapshots.len() {
+                let matrices: Vec<_> = snapshots
+                    .iter()
+                    .filter_map(|s| s.which_camera.as_ref())
+                    .filter_map(|id| camera_info_hm.get(id))
+                    .filter_map(|info| info.calibration.as_ref())
+                    .filter_map(|cal| crate::triangulator::calculate_camera_matrix(cal).ok())
+                    .collect();
+                if matrices.len() == snapshots.len() {
+                    crate::triangulator::triangulate_from_poses_and_camera_matrices(poses, &matrices)
+                        .ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        Ok(Response::new(ServerSnapshotResponse {
+            snapshot_id,
+            timestamp: Some(timestamp.into()),
+            snapshots,
+            pose3d,
+        }))
     }
 
     async fn get_current(
         &self,
         request: Request<CameraIdentifier>,
     ) -> Result<Response<ServerSnapshotResponse>, Status> {
-        todo!()
+        let which_camera = request.into_inner();
+        let group_name = which_camera.group_name;
+        let camera_name = which_camera.camera_name;
+        let cache = self.stream_cache.read();
+        let snapshots: Vec<Snapshot> = if camera_name.is_empty() {
+            cache
+                .get(&group_name)
+                .map(|group_hm| group_hm.read().values().cloned().collect())
+                .unwrap_or_default()
+        } else {
+            cache
+                .get(&group_name)
+                .and_then(|group_hm| group_hm.read().get(&camera_name).cloned())
+                .map(|s| vec![s])
+                .unwrap_or_default()
+        };
+        if snapshots.is_empty() {
+            return Err(Status::not_found("No current snapshot in cache for requested camera(s)"));
+        }
+        Ok(Response::new(ServerSnapshotResponse {
+            snapshot_id: "current".to_string(),
+            timestamp: snapshots
+                .first()
+                .and_then(|s| s.timestamp.clone())
+                .or_else(|| Some(SystemTime::now().into())),
+            snapshots,
+            pose3d: None,
+        }))
     }
 
     async fn calibrate(
@@ -1131,15 +1348,15 @@ impl Default for GrpcConfig {
 
 pub struct GrpcServer {
     config: GrpcConfig,
-    cameras_tx: mpsc::Sender<CameraInfo>,
-    snapshots_tx: mpsc::Sender<Snapshot>,
+    cameras_tx: mpsc::UnboundedSender<CameraInfo>,
+    snapshots_tx: mpsc::UnboundedSender<Snapshot>,
 }
 
 impl GrpcServer {
     pub fn new(
         config: GrpcConfig,
-        cameras_tx: mpsc::Sender<CameraInfo>,
-        snapshots_tx: mpsc::Sender<Snapshot>,
+        cameras_tx: mpsc::UnboundedSender<CameraInfo>,
+        snapshots_tx: mpsc::UnboundedSender<Snapshot>,
     ) -> Self {
         Self {
             config,
@@ -1151,13 +1368,18 @@ impl GrpcServer {
     pub async fn run(self) -> anyhow::Result<()> {
         log::info!("PoseNet Hub gRPC service listening on {}", self.config.addr);
 
+        let stream_cache = Arc::new(RwLock::new(HashMap::new()));
+        let stream_state = Arc::new(RwLock::new(HashMap::new()));
         let hub_server = HubServer {
             cameras_tx: self.cameras_tx,
             snapshots_tx: self.snapshots_tx,
             session_tokens: RwLock::new(HashMap::new()),
-            stream_cache: RwLock::new(HashMap::new()),
+            stream_cache,
+            stream_state,
             control_channels: RwLock::new(HashMap::new()),
+            pending_control_rx: RwLock::new(HashMap::new()),
             data_channels: RwLock::new(HashMap::new()),
+            camera_info: RwLock::new(HashMap::new()),
         };
 
         Server::builder()

@@ -39,83 +39,102 @@ impl Controller {
         }
     }
 
-    //     pub async fn run(mut self) -> Result<(), BoxError> {
-    //         try_join!(self.listen_for_cameras(), self.listen_for_poses())?;
-    //         Ok(())
-    //     }
+    pub async fn run(self) -> Result<(), BoxError> {
+        let (cameras_rx, snapshots_rx) = (self.cameras_rx, self.snapshots_rx);
+        let triangulators = self.triangulators;
+        let config = self.config;
+        let poses3d_tx = self.poses3d_tx;
+        let triangulators_for_poses = triangulators.clone();
+        let poses_handle = tokio::spawn(async move {
+            Self::listen_for_poses(snapshots_rx, triangulators_for_poses).await
+        });
+        let cameras_handle = tokio::spawn(async move {
+            Self::listen_for_cameras(cameras_rx, triangulators, config, poses3d_tx).await
+        });
+        let (poses_res, cameras_res) =
+            try_join!(poses_handle, cameras_handle).map_err(|e| Box::new(e) as BoxError)?;
+        poses_res?;
+        cameras_res?;
+        Ok(())
+    }
 
-    //     async fn listen_for_poses(&mut self) -> Result<(), BoxError> {
-    //         loop {
-    //             // TODO: Proper error handling
-    //             let labeled = self.snapshots_rx.recv().await.expect("no message");
-    //             match self.triangulators.read().unwrap().get(
-    //                 &labeled
-    //                     .which_camera
-    //                     .as_ref()
-    //                     .map(|id| id.group_name.clone())
-    //                     // TODO: What if which_camera is None? (parse, don't validate)
-    //                     .unwrap_or_default(),
-    //             ) {
-    //                 Some(info) => info
-    //                     .snapshots_tx
-    //                     .send(labeled)
-    //                     .expect("triangulator channel closed."),
-    //                 None => println!(
-    //                     "Warning: Received a pose with an unregistered group name, discarding.."
-    //                 ),
-    //             };
-    //         }
-    //     }
+    async fn listen_for_poses(
+        mut snapshots_rx: UnboundedReceiver<Snapshot>,
+        triangulators: Arc<RwLock<HashMap<String, TriangulatorInfo>>>,
+    ) -> Result<(), BoxError> {
+        loop {
+            let labeled = snapshots_rx.recv().await.expect("no message");
+            let group_name = labeled
+                .which_camera
+                .as_ref()
+                .map(|id| id.group_name.clone())
+                .unwrap_or_default();
+            match triangulators.read().get(&group_name) {
+                Some(info) => {
+                    info.snapshots_tx
+                        .send(labeled)
+                        .expect("triangulator channel closed.");
+                }
+                None => {
+                    log::warn!(
+                        "Received a pose with an unregistered group name, discarding.."
+                    );
+                }
+            };
+        }
+    }
 
-    //     async fn listen_for_cameras(&self) -> Result<(), BoxError> {
-    //         loop {
-    //             // TODO: Proper error handling
-    //             let camera = self.cameras_rx.recv().await.expect("no message");
-    //             let group_name = camera
-    //                 .which_camera
-    //                 .as_ref()
-    //                 .map(|id| id.group_name.clone())
-    //                 // TODO: What if which_camera is None?
-    //                 .unwrap_or_default();
-    //             let create_group = match self.triangulators.read().unwrap().get(&group_name) {
-    //                 Some(info) => {
-    //                     info.cameras_tx
-    //                         .send(camera.clone())
-    //                         .expect("triangulator channel closed.");
-    //                     false
-    //                 }
-    //                 None => true,
-    //             };
+    async fn listen_for_cameras(
+        mut cameras_rx: UnboundedReceiver<CameraInfo>,
+        triangulators: Arc<RwLock<HashMap<String, TriangulatorInfo>>>,
+        config: TriangulatorConfig,
+        poses3d_tx: broadcast::Sender<LabeledPoses3D>,
+    ) -> Result<(), BoxError> {
+        loop {
+            let camera = cameras_rx.recv().await.expect("no message");
+            let group_name = camera
+                .which_camera
+                .as_ref()
+                .map(|id| id.group_name.clone())
+                .unwrap_or_default();
+            let create_group = match triangulators.read().get(&group_name) {
+                Some(info) => {
+                    info.cameras_tx
+                        .send(camera.clone())
+                        .expect("triangulator channel closed.");
+                    false
+                }
+                None => true,
+            };
 
-    //             if create_group {
-    //                 println!("New camera group --> {}", group_name.clone());
-    //                 let (cameras_tx, cameras_rx) = unbounded_channel::<CameraInfo>();
-    //                 let (snapshots_tx, snapshots_rx) = unbounded_channel::<Snapshot>();
+            if create_group {
+                log::info!("New camera group --> {}", group_name);
+                let (cameras_tx, new_cameras_rx) = unbounded_channel::<CameraInfo>();
+                let (snapshots_tx, snapshots_rx) = unbounded_channel::<Snapshot>();
 
-    //                 let t = Triangulator::new(
-    //                     self.config.clone(),
-    //                     group_name.clone(),
-    //                     cameras_rx,
-    //                     snapshots_rx,
-    //                     self.poses3d_tx.clone(),
-    //                 );
-    //                 let info = TriangulatorInfo {
-    //                     cameras_tx,
-    //                     snapshots_tx,
-    //                 };
-    //                 info.cameras_tx
-    //                     .send(camera)
-    //                     .expect("triangulator channel closed.");
+                let t = Triangulator::new(
+                    config.clone(),
+                    group_name.clone(),
+                    new_cameras_rx,
+                    snapshots_rx,
+                    poses3d_tx.clone(),
+                );
+                let info = TriangulatorInfo {
+                    cameras_tx,
+                    snapshots_tx,
+                };
+                info.cameras_tx
+                    .send(camera)
+                    .expect("triangulator channel closed.");
 
-    //                 self.triangulators
-    //                     .write()
-    //                     .expect("triangulators lock poisoned!")
-    //                     .insert(group_name, info);
+                triangulators.write().insert(group_name, info);
 
-    //                 tokio::spawn(async move {
-    //                     t.run().await.unwrap();
-    //                 });
-    //             }
-    //         }
-    //     }
+                tokio::spawn(async move {
+                    if let Err(e) = t.run().await {
+                        log::error!("Triangulator run error: {}", e);
+                    }
+                });
+            }
+        }
+    }
 }
