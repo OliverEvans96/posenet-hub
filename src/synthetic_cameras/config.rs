@@ -21,7 +21,7 @@ pub struct SyntheticCamerasConfig {
     /// Frames per second for streaming (default 30).
     #[serde(default = "default_fps")]
     pub fps: f32,
-    /// Rotation speed: radians per second around vertical (Y) axis (default 0.1).
+    /// Rotation speed: radians per second around Z axis (yaw; default 0.1).
     #[serde(default = "default_rotation_speed")]
     pub rotation_speed_rad_per_sec: f64,
 }

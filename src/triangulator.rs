@@ -203,6 +203,12 @@ impl Triangulator {
                     continue;
                 }
             };
+            let num_poses = snapshot.poses.len();
+            log::debug!(
+                "Triangulator: snapshot from {} ({} pose(s))",
+                camera_name,
+                num_poses
+            );
             poses.write().insert(camera_name, snapshot);
         }
     }
@@ -261,7 +267,31 @@ impl Triangulator {
         poses3d_tx: broadcast::Sender<LabeledPoses3D>,
     ) -> Result<(), BoxError> {
         loop {
-            let current = get_current_snapshot_impl(&config, &*poses.read(), SystemTime::now());
+            let (current, current_cameras, poses_len, poses_is_empty) = {
+                let poses_guard = poses.read();
+                let current = get_current_snapshot_impl(&config, &*poses_guard, SystemTime::now());
+                let current_cameras: Vec<String> = current
+                    .iter()
+                    .filter_map(|s| s.which_camera.as_ref().map(|w| w.camera_name.clone()))
+                    .collect();
+                let poses_len = poses_guard.len();
+                let poses_is_empty = poses_guard.is_empty();
+                (current, current_cameras, poses_len, poses_is_empty)
+            };
+            if current.is_empty() && !poses_is_empty {
+                log::debug!(
+                    "Triangulator [{}]: 0 current snapshots ({} in store) – expired or missing timestamp?",
+                    group_name,
+                    poses_len
+                );
+            } else {
+                log::debug!(
+                    "Triangulator [{}]: current snapshots: {} (cameras: {:?})",
+                    group_name,
+                    current.len(),
+                    current_cameras
+                );
+            }
             let users = {
                 let cameras_guard = cameras.read();
                 group_poses_and_cameras_by_user_impl(&current, &cameras_guard, 1)
@@ -269,15 +299,25 @@ impl Triangulator {
             let users = match users {
                 Ok(u) => u,
                 Err(e) => {
-                    log::warn!("group_poses_and_cameras_by_user failed: {}", e);
+                    log::warn!(
+                        "Triangulator [{}]: group_poses_and_cameras_by_user failed: {}",
+                        group_name,
+                        e
+                    );
                     sleep(config.poll_interval).await;
                     continue;
                 }
             };
             for (poses_2d, camera_matrices) in users {
-                if camera_matrices.len() >= config.min_cameras {
+                let n_views = camera_matrices.len();
+                if n_views >= config.min_cameras {
                     match triangulate_from_poses_and_camera_matrices(poses_2d, &camera_matrices) {
                         Ok(pose3d) => {
+                            log::info!(
+                                "Triangulator [{}]: triangulated 1 pose ({} views), broadcasting",
+                                group_name,
+                                n_views
+                            );
                             let _ = poses3d_tx.send(LabeledPoses3D {
                                 group_name: group_name.clone(),
                                 poses: vec![pose3d],
@@ -285,10 +325,21 @@ impl Triangulator {
                             });
                         }
                         Err(e) => {
-                            log::warn!("triangulate failed: {}", e);
+                            log::warn!(
+                                "Triangulator [{}]: triangulate failed ({} views): {}",
+                                group_name,
+                                n_views,
+                                e
+                            );
                         }
                     }
                 } else {
+                    log::debug!(
+                        "Triangulator [{}]: sending 0 poses (need >= {} views, have {})",
+                        group_name,
+                        config.min_cameras,
+                        n_views
+                    );
                     let _ = poses3d_tx.send(LabeledPoses3D {
                         group_name: group_name.clone(),
                         poses: vec![],

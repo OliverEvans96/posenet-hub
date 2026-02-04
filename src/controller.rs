@@ -69,14 +69,29 @@ impl Controller {
                 .as_ref()
                 .map(|id| id.group_name.clone())
                 .unwrap_or_default();
+            let num_poses = labeled.poses.len();
+            let camera_label = labeled
+                .which_camera
+                .as_ref()
+                .map(|id| id.camera_name.as_str())
+                .unwrap_or("?");
             match triangulators.read().get(&group_name) {
                 Some(info) => {
+                    log::debug!(
+                        "Controller: snapshot {}:{} ({} pose(s)) -> triangulator",
+                        group_name,
+                        camera_label,
+                        num_poses
+                    );
                     info.snapshots_tx
                         .send(labeled)
                         .expect("triangulator channel closed.");
                 }
                 None => {
-                    log::warn!("Received a pose with an unregistered group name, discarding..");
+                    log::warn!(
+                        "Controller: snapshot for unregistered group '{}', discarding",
+                        group_name
+                    );
                 }
             };
         }

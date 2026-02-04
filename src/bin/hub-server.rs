@@ -1,37 +1,52 @@
+use std::future::Future;
+use std::pin::Pin;
+use tokio::runtime::Runtime;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::{sync::broadcast, try_join};
 
+use clap::Parser;
 use posenet_vr_hub::controller::Controller;
 use posenet_vr_hub::grpc::proto::CameraInfo;
 use posenet_vr_hub::grpc::proto::Snapshot;
 use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer};
 use posenet_vr_hub::triangulator::{LabeledPoses3D, TriangulatorConfig};
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
+use posenet_vr_hub::websocket::{WebSocketConfig, WebSocketServer};
+
+#[derive(Parser, Debug)]
+#[clap(name = "hub-server", about = "PoseNet Hub: gRPC, optional WebSocket pose stream and VRPN")]
+struct Opts {
+    /// Enable WebSocket server for pose stream (default: disabled)
+    #[clap(long)]
+    ws: bool,
+
+    /// Enable VRPN server for pose tracking (default: disabled)
+    #[clap(long)]
+    vrpn: bool,
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
 
-    log::info!("Hub main start");
+    let opts = Opts::parse();
+    log::info!("Hub main start (ws={}, vrpn={})", opts.ws, opts.vrpn);
 
     let (cameras_tx, cameras_rx) = unbounded_channel::<CameraInfo>();
     let (snapshots_tx, snapshots_rx) = unbounded_channel::<Snapshot>();
-    let (poses3d_bcast_tx, poses3d_bcast_rx) = broadcast::channel::<LabeledPoses3D>(100);
+    let (poses3d_bcast_tx, _) = broadcast::channel::<LabeledPoses3D>(100);
 
     let triangulator_config = TriangulatorConfig::default();
     let controller = Controller::new(
         triangulator_config,
         cameras_rx,
         snapshots_rx,
-        poses3d_bcast_tx,
+        poses3d_bcast_tx.clone(),
     );
 
     let grpc_config = GrpcConfig::default();
     let grpc_server = GrpcServer::new(grpc_config, cameras_tx, snapshots_tx);
-
-    let vrpn_config = VrpnConfig::default();
-    let mut vrpn_server = VrpnServer::new(vrpn_config, poses3d_bcast_rx);
 
     let run_controller = async move {
         match controller.run().await {
@@ -40,13 +55,33 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     let run_grpc = grpc_server.run();
-    let run_vrpn = async move {
-        match vrpn_server.run().await {
-            Ok(()) => Ok(()),
-            Err(e) => Err(anyhow::Error::msg(e.to_string())),
-        }
+
+    // VRPN server holds C++ state that is !Send, so run it in a dedicated thread with its own runtime.
+    if opts.vrpn {
+        let vrpn_rx = poses3d_bcast_tx.subscribe();
+        std::thread::spawn(move || {
+            let rt = Runtime::new().expect("VRPN runtime");
+            let mut vrpn_server = VrpnServer::new(VrpnConfig::default(), vrpn_rx);
+            if let Err(e) = rt.block_on(vrpn_server.run()) {
+                log::error!("VRPN server error: {}", e);
+            }
+        });
+    }
+
+    let run_ws: Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> = if opts.ws {
+        let ws_server =
+            WebSocketServer::new(WebSocketConfig::default(), poses3d_bcast_tx.subscribe());
+        Box::pin(async move {
+            match ws_server.run().await {
+                Ok(()) => Ok(()),
+                Err(e) => Err(anyhow::Error::msg(e.to_string())),
+            }
+        })
+    } else {
+        Box::pin(std::future::pending())
     };
-    try_join!(run_controller, run_grpc, run_vrpn)?;
+
+    try_join!(run_controller, run_grpc, run_ws)?;
     log::info!("Hub main end");
 
     Ok(())

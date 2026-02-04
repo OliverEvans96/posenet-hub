@@ -77,6 +77,12 @@ fn point_to_proto(p: Point3<f64>) -> crate::grpc::proto::Point3D {
 }
 
 /// Apply a rotation around the given center to a slice of 3D points (in place).
+///
+/// **Important:** For animation, always rotate from the *original* points each frame using
+/// a single angle (e.g. `angle = speed * elapsed_time`). Do not accumulate angle and
+/// re-apply to the same buffer each frame: that composes rotations and makes effective
+/// angle grow as 1+2+...+n = n(n+1)/2 per frame n, so rotation appears to speed up
+/// (quadratically) and can look like it reverses when the angle wraps.
 pub fn rotate_pose_around(
     points: &mut [Point3<f64>],
     center: Point3<f64>,
@@ -89,10 +95,16 @@ pub fn rotate_pose_around(
     }
 }
 
-/// Rotation angle for "slow continuous rotation" (e.g. degrees per second).
-/// Returns rotation around vertical (Y) axis for given angle in radians.
+/// Rotation around vertical (Y) axis for given angle in radians.
+#[allow(dead_code)]
 pub fn rotation_around_y_rad(angle_rad: f64) -> Rotation3<f64> {
     Rotation3::from_euler_angles(0.0, angle_rad, 0.0)
+}
+
+/// Rotation around Z axis (yaw: horizontal plane) for given angle in radians.
+/// Use this for a subject spinning in place (constant rate with elapsed time).
+pub fn rotation_around_z_rad(angle_rad: f64) -> Rotation3<f64> {
+    Rotation3::from_euler_angles(0.0, 0.0, angle_rad)
 }
 
 #[cfg(test)]

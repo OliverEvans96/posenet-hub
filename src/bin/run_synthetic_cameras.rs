@@ -18,7 +18,7 @@ use posenet_vr_hub::grpc::proto::{
 };
 use posenet_vr_hub::synthetic_cameras::{
     load_pose_csv, points_to_pose3d, project_pose3d_to_pose2d, rotate_pose_around,
-    rotation_around_y_rad, SyntheticCamerasConfig,
+    rotation_around_z_rad, SyntheticCamerasConfig,
 };
 
 #[derive(Debug, StructOpt)]
@@ -116,13 +116,13 @@ async fn main() -> anyhow::Result<()> {
     } else {
         std::env::current_dir()?.join(&config.pose_csv_path)
     };
-    let mut points = load_pose_csv(&pose_path)?;
-    let pose_center = points
+    let points_original = load_pose_csv(&pose_path)?;
+    let pose_center = points_original
         .iter()
         .fold(nalgebra::Point3::new(0.0, 0.0, 0.0), |acc, p| {
             nalgebra::Point3::new(acc.x + p.x, acc.y + p.y, acc.z + p.z)
         });
-    let n = points.len() as f64;
+    let n = points_original.len() as f64;
     let pose_center =
         nalgebra::Point3::new(pose_center.x / n, pose_center.y / n, pose_center.z / n);
 
@@ -185,9 +185,24 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Tell the hub to start streaming for this group so it sends StartStreaming to each camera.
+    // Until this runs, cameras never open CameraDataSink and no snapshots reach the triangulator.
+    let admin_channel = Channel::from_shared(hub_url.clone())?.connect().await?;
+    let mut admin_client = HubServiceClient::new(admin_channel);
+    posenet_vr_hub::grpc::client::stream_control_start(
+        &mut admin_client,
+        group_name.clone(),
+        true,  // with_pose
+        false, // with_image
+        Some(config.fps),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("stream_control_start: {}", e))?;
+    log::info!("StreamControl(StartStreaming) sent for group '{}'", group_name);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
     let start = Instant::now();
     let mut frame_interval = interval(interval_duration);
-    let mut angle_rad = 0.0f64;
 
     loop {
         if let Some(secs) = duration_secs {
@@ -198,8 +213,13 @@ async fn main() -> anyhow::Result<()> {
         }
 
         frame_interval.tick().await;
-        angle_rad += rotation_speed * interval_duration.as_secs_f64();
-        let rot = rotation_around_y_rad(angle_rad);
+        // Constant rate: angle from elapsed wall-clock time (radians per second around Z).
+        // We must rotate from points_original each frame. Do NOT re-apply rotation to
+        // already-rotated points (that would compound: effective angle would grow as
+        // 1+2+...+n → quadratic speedup and apparent reversals).
+        let angle_rad = rotation_speed * start.elapsed().as_secs_f64();
+        let rot = rotation_around_z_rad(angle_rad);
+        let mut points = points_original.clone();
         rotate_pose_around(&mut points, pose_center, &rot);
         let pose3d = points_to_pose3d(&points, 1.0);
 

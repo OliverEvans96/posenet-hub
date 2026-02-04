@@ -11,6 +11,7 @@ pub mod synthetic_cameras;
 pub mod triangulator;
 mod utils;
 pub mod vrpn;
+pub mod websocket;
 
 // Re-export common error types for library consumers and binaries
 pub use errors::{CalculationError, ConfigError, HubError, MissingField, OpenMvgError};

@@ -41,16 +41,42 @@ impl VrpnServer {
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        println!("PoseNet Hub VRPN service listening on {}", self.config.addr);
+        log::info!("PoseNet Hub VRPN service listening on {}", self.config.addr);
 
         let mut container = ffi::create_container();
+        let mut seen_groups: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut update_count: u64 = 0;
+
         loop {
             let message = self.poses3d_rx.recv().await?;
-            let device_name = message.group_name + ":" + &self.config.device_name;
-            println!("VRPN device: {}", device_name);
+            let device_name = message.group_name.clone() + ":" + &self.config.device_name;
+            let num_poses = message.poses.len();
+
+            if seen_groups.insert(message.group_name.clone()) {
+                log::info!(
+                    "VRPN: new group '{}' → device '{}' ({} pose(s) in this update)",
+                    message.group_name,
+                    device_name,
+                    num_poses
+                );
+            }
 
             if let Some(pose) = message.poses.into_iter().next() {
+                let score = pose.score;
                 update_values(&mut container, &device_name, pose)?;
+                update_count = update_count.saturating_add(1);
+                log::trace!(
+                    "VRPN update #{} for '{}' (pose score: {:.3})",
+                    update_count,
+                    device_name,
+                    score
+                );
+            } else if num_poses > 0 {
+                log::warn!(
+                    "VRPN: group '{}' had {} pose(s) but none could be used",
+                    message.group_name,
+                    num_poses
+                );
             }
 
             ffi::mainloop(&mut container);
