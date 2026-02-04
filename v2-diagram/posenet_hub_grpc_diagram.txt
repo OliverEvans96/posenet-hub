@@ -1,0 +1,247 @@
+# Posenet Hub gRPC Diagram - Text-Based Representation
+
+## System Overview
+This diagram illustrates the gRPC-based architecture for the Posenet Hub system, showing communication flows between camera clients and the hub server's various endpoints.
+
+## Main Components
+
+### Clients
+1. **gRPC Client (Camera)** [Orange box]
+   - Initiates connections and sends data to the Hub
+   
+2. **gRPC Client (Admin; CLI/Web)** [Orange box]
+   - Administrative client for managing the system
+   
+3. **gRPC Client (Jupyter)** [Green box]
+   - Specialized client for Jupyter integration
+
+### Hub gRPC Server Endpoints
+
+#### Camera Endpoints (Blue ovals)
+1. **Hello**
+2. **CameraControl**
+3. **CameraDataSink**
+
+#### Admin Endpoints (Pink ovals)
+1. **ListGroups**
+2. **ListCameras**
+3. **GetCameraInfo**
+4. **StreamControl**
+5. **TakeSnapshots**
+6. **GetCurrent**
+7. **Calibrate**
+8. **Ping**
+
+#### À la Carte Endpoints (Yellow ovals)
+1. **Triangulate**
+2. **BundleAdjustment**
+
+---
+
+## Communication Flows
+
+### Camera Client → Hub Server
+
+#### Flow 1: Authentication & Session Establishment
+0. CameraInfo(group_name, camera_name, calibration_data?)
+   → Hello endpoint
+   
+1. SessionToken
+   ← Hello endpoint
+   
+3. SessionToken
+   → CameraControl endpoint
+
+#### Flow 2: Camera Control Commands
+4. CommandToken, enum CameraControlCommand (e.g. StartStreaming)
+   → CameraControl endpoint
+   
+5. CommandToken
+   → CameraDataSink endpoint
+
+#### Flow 3: Data Streaming
+6. stream Snapshot(timestamp, camera, poses?, image?)
+   → CameraDataSink endpoint
+   
+8. end stream
+   → CameraDataSink endpoint
+
+#### Flow 4: Additional Control Commands
+7. CommandToken, enum CameraControlCommand (e.g. StopStreaming)
+   → CameraControl endpoint
+   
+9. CommandToken, enum CameraControlCommand (e.g. Ping)
+   → CameraControl endpoint
+   
+10. Ping(CommandToken)
+    → CameraControl endpoint
+
+---
+
+### Hub Server → Admin Client
+
+#### ListGroups Endpoint
+- **Request:** ListGroupsRequest()
+- **Response:** ListGroupsResponse(group_names)
+
+#### ListCameras Endpoint
+- **Request:** ListCamerasRequest(group_name)
+- **Response:** ListCamerasResponse(camera_names)
+
+#### GetCameraInfo Endpoint
+- **Request:** CameraIdentifier
+- **Response:** CameraInfo
+
+#### StreamControl Endpoint
+- **Request:** StreamControlRequest(group_name, command)
+- **Response:** StreamStatus
+
+#### TakeSnapshots Endpoint
+- **Request:** ServerSnapshotRequest(group_name, params...)
+- **Response:** ServerSnapshotResponse(id, timestamp, messages, pose3d?)
+
+#### GetCurrent Endpoint
+- **Request:** CameraIdentifier
+- **Response:** ServerSnapshotResponse(id, timestamp, messages, pose3d?)
+
+#### Calibrate Endpoint
+- **Request:** CalibrationRequest(which_camera, command)
+- **Response:** CalibrationResponse(calibration_status)
+
+#### Ping Endpoint
+- **Request:** PingRequest(which_camera?, timeout)
+- **Response:** PingResponse(response_times?)
+
+---
+
+### Jupyter Client ↔ À la Carte Endpoints
+
+#### Triangulate Endpoint
+- **Request:** TriangulationRequest
+- **Response:** TriangulationResponse
+
+#### BundleAdjustment Endpoint
+- **Request:** BARequest
+- **Response:** BAResponse
+
+---
+
+## Data Flow Patterns
+
+### Camera Registration & Streaming Sequence:
+```
+Camera Client                    Hub Server
+     |                                |
+     |---(0) CameraInfo-------------->| Hello
+     |<--(1) SessionToken-------------|
+     |                                |
+     |---(3) SessionToken------------>| CameraControl
+     |---(4) CommandToken------------>| 
+     |                                |
+     |---(5) CommandToken------------>| CameraDataSink
+     |---(6) stream Snapshot-------->|
+     |     ... continuous stream ...  |
+     |---(7) CommandToken------------>| CameraControl
+     |---(8) end stream-------------->| CameraDataSink
+     |                                |
+     |---(9) CommandToken------------>| CameraControl
+     |---(10) Ping(CommandToken)----->|
+```
+
+### Admin Operations Flow:
+```
+Admin Client                     Hub Server
+     |                                |
+     |---ListGroupsRequest()--------->| ListGroups
+     |<--ListGroupsResponse()---------|
+     |                                |
+     |---ListCamerasRequest()-------->| ListCameras
+     |<--ListCamerasResponse()--------|
+     |                                |
+     |---CameraIdentifier------------>| GetCameraInfo
+     |<--CameraInfo-------------------|
+     |                                |
+     |---StreamControlRequest-------->| StreamControl
+     |<--StreamStatus-----------------|
+     |                                |
+     |---ServerSnapshotRequest------->| TakeSnapshots
+     |<--ServerSnapshotResponse-------|
+```
+
+---
+
+## TODO Section - Future Enhancements
+
+### High Priority Items:
+- CLI Authentication / RBAC Authorization
+- Tail stream (equivalent to VRPN (?), but over gRPC)
+
+### Low Priority - RecordControl Endpoint (Pink oval)
+**Methods:**
+- StartRecording(group_name, recording_name?, duration?, params...)
+  - params: reverse, speed, loop, etc.
+- StopRecording(group_name)
+- ReplayRecording(recording_id_or_name, params)
+- StopReplayingRecording(recording_id_or_name)
+
+### Lower Priority - VRPNControl Endpoint (Pink oval)
+**Methods:**
+- SetVrpnParams(device_id, framerate?, ...)
+- StopVrpnDevice(device_id)
+- StartVrpnDevice(group_name, device_id)
+
+---
+
+## Legend
+
+**Notation:**
+- `?` = optional parameter
+
+**Visual Elements:**
+- Rectangular boxes = gRPC Clients
+- Oval shapes = gRPC Endpoints
+- Orange/Yellow = Camera client and flows
+- Blue = Camera-facing endpoints
+- Pink = Admin-facing endpoints
+- Yellow = À la carte endpoints
+- Green = Jupyter client
+
+**Endpoint Groups:**
+- Camera - Camera-facing endpoints
+- Admin - Administrative endpoints
+- À la carte - Specialized computation endpoints
+
+---
+
+## Key Data Types Referenced
+
+1. **CameraInfo**: group_name, camera_name, calibration_data?
+2. **SessionToken**: Authentication token for camera sessions
+3. **CommandToken**: Token for camera control commands
+4. **CameraControlCommand**: Enum (StartStreaming, StopStreaming, Ping, etc.)
+5. **Snapshot**: timestamp, camera, poses?, image?
+6. **CameraIdentifier**: Unique identifier for camera instances
+7. **ServerSnapshotRequest**: group_name, params...
+8. **ServerSnapshotResponse**: id, timestamp, messages, pose3d?
+9. **CalibrationRequest**: which_camera, command
+10. **CalibrationResponse**: calibration_status
+11. **PingRequest**: which_camera?, timeout
+12. **PingResponse**: response_times?
+13. **StreamControlRequest**: group_name, command
+14. **StreamStatus**: Current streaming status
+
+---
+
+## Architecture Notes
+
+1. **Authentication Flow**: Cameras authenticate via the Hello endpoint using CameraInfo and receive a SessionToken for subsequent operations.
+
+2. **Command Pattern**: Camera control uses a token-based command system where CommandTokens are issued and used across CameraControl and CameraDataSink endpoints.
+
+3. **Streaming Protocol**: Camera data is streamed via the CameraDataSink endpoint using a continuous Snapshot stream.
+
+4. **Admin Access**: Administrative clients can query groups, cameras, control streaming, trigger snapshots, and perform calibration operations.
+
+5. **Specialized Processing**: À la carte endpoints (Triangulate, BundleAdjustment) provide specialized computation services for Jupyter clients.
+
+6. **Bidirectional Communication**: Multiple flows show both request-response patterns and streaming data flows.
