@@ -118,21 +118,34 @@ async fn handle_request(
         let placeholder = mjpeg_part(&placeholder_jpeg());
         let _ = tx.send(Ok(Bytes::from(placeholder)));
         let mut ticker = interval(Duration::from_millis(1000 / MJPEG_FPS as u64));
+        let mut frames_sent: u64 = 0;
         loop {
             ticker.tick().await;
             let snapshot = hub_clone.get_latest_snapshot(&group, &name);
             let Some(snapshot) = snapshot else {
+                log::debug!("MJPEG {}: no snapshot in cache", name);
                 continue;
             };
             let Some(ref img) = snapshot.image else {
                 continue;
             };
-            let Some(jpeg) = image_to_jpeg(img) else {
-                continue;
+            // Encode in a blocking thread so we don't starve the async runtime (gRPC stream processing).
+            let img = img.clone();
+            let jpeg = match tokio::task::spawn_blocking(move || image_to_jpeg(&img)).await {
+                Ok(Some(j)) => j,
+                Ok(None) => continue,
+                Err(e) => {
+                    log::warn!("MJPEG {}: spawn_blocking join error: {}", name, e);
+                    continue;
+                }
             };
             let part = mjpeg_part(&jpeg);
             if tx.send(Ok(Bytes::from(part))).is_err() {
                 break;
+            }
+            frames_sent += 1;
+            if frames_sent % 60 == 0 {
+                log::debug!("MJPEG {}: {} frames sent", name, frames_sent);
             }
         }
     });

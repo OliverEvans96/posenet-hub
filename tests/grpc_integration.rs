@@ -600,6 +600,169 @@ async fn grpc_take_snapshots_poses3d_multi_pose() {
     .expect("test timeout");
 }
 
+/// TakeSnapshots with 3 cameras and non-index-aligned poses (cam2 has swapped order).
+/// Pose matching should recover correct correspondence and return 2 valid 3D poses.
+#[tokio::test]
+async fn grpc_take_snapshots_poses3d_three_cams_swapped_order() {
+    timeout(TEST_TIMEOUT, async {
+        let port = start_test_server().await;
+        let mut admin = connect_client(port).await;
+        let group = "grpc_poses3d_three_swapped_group";
+
+        let view0 = vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        let view1 = vec![1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        let view2 = vec![1.0, 0.0, 0.0, 0.5, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        let cam_infos = [
+            CameraInfo {
+                which_camera: Some(CameraIdentifier { group_name: group.to_string(), camera_name: "c0".to_string() }),
+                calibration: Some(CalibrationParameters {
+                    intrinsics: Some(CameraIntrinsics {
+                        camera_matrix: vec![500.0, 0.0, 320.0, 0.0, 500.0, 240.0, 0.0, 0.0, 1.0],
+                        distortion: vec![0.0; 5],
+                        rms_error: 0.0,
+                    }),
+                    extrinsics: Some(CameraExtrinsics { view_matrix: view0 }),
+                }),
+            },
+            CameraInfo {
+                which_camera: Some(CameraIdentifier { group_name: group.to_string(), camera_name: "c1".to_string() }),
+                calibration: Some(CalibrationParameters {
+                    intrinsics: Some(CameraIntrinsics {
+                        camera_matrix: vec![500.0, 0.0, 320.0, 0.0, 500.0, 240.0, 0.0, 0.0, 1.0],
+                        distortion: vec![0.0; 5],
+                        rms_error: 0.0,
+                    }),
+                    extrinsics: Some(CameraExtrinsics { view_matrix: view1 }),
+                }),
+            },
+            CameraInfo {
+                which_camera: Some(CameraIdentifier { group_name: group.to_string(), camera_name: "c2".to_string() }),
+                calibration: Some(CalibrationParameters {
+                    intrinsics: Some(CameraIntrinsics {
+                        camera_matrix: vec![500.0, 0.0, 320.0, 0.0, 500.0, 240.0, 0.0, 0.0, 1.0],
+                        distortion: vec![0.0; 5],
+                        rms_error: 0.0,
+                    }),
+                    extrinsics: Some(CameraExtrinsics { view_matrix: view2 }),
+                }),
+            },
+        ];
+
+        let mut client0 = connect_client(port).await;
+        let mut client1 = connect_client(port).await;
+        let mut client2 = connect_client(port).await;
+        let token0 = client0.hello(Request::new(cam_infos[0].clone())).await.expect("hello").into_inner();
+        let token1 = client1.hello(Request::new(cam_infos[1].clone())).await.expect("hello").into_inner();
+        let token2 = client2.hello(Request::new(cam_infos[2].clone())).await.expect("hello").into_inner();
+
+        let (cmd_tx0, mut cmd_rx0) = mpsc::channel(4);
+        let (cmd_tx1, mut cmd_rx1) = mpsc::channel(4);
+        let (cmd_tx2, mut cmd_rx2) = mpsc::channel(4);
+        let mut cc0 = connect_client(port).await;
+        let mut cc1 = connect_client(port).await;
+        let mut cc2 = connect_client(port).await;
+        tokio::spawn(async move {
+            let mut s = cc0.camera_control(Request::new(token0)).await.expect("cc").into_inner();
+            while let Ok(Some(cmd)) = s.message().await { let _ = cmd_tx0.send(cmd).await; }
+        });
+        tokio::spawn(async move {
+            let mut s = cc1.camera_control(Request::new(token1)).await.expect("cc").into_inner();
+            while let Ok(Some(cmd)) = s.message().await { let _ = cmd_tx1.send(cmd).await; }
+        });
+        tokio::spawn(async move {
+            let mut s = cc2.camera_control(Request::new(token2)).await.expect("cc").into_inner();
+            while let Ok(Some(cmd)) = s.message().await { let _ = cmd_tx2.send(cmd).await; }
+        });
+
+        let take_req = ServerSnapshotRequest {
+            which_camera: Some(CameraIdentifier { group_name: group.to_string(), camera_name: String::new() }),
+            params: Some(SnapshotParameters {
+                common: Some(SnapshotPayloadParameters { with_pose: true, with_image: false }),
+            }),
+            want_pose3d: true,
+        };
+
+        // Subject A at ~(320,240), subject B at ~(100,100). Cam0 and cam1: [A, B]; cam2: [B, A] (swapped).
+        let pose_a = full_pose2d(320.0, 240.0, 0.9);
+        let pose_b = full_pose2d(100.0, 100.0, 0.9);
+        let poses_cam0 = vec![pose_a.clone(), pose_b.clone()];
+        let poses_cam1 = vec![pose_a.clone(), pose_b.clone()];
+        let poses_cam2_swapped = vec![pose_b.clone(), pose_a.clone()];
+        let which0 = cam_infos[0].which_camera.clone();
+        let which1 = cam_infos[1].which_camera.clone();
+        let which2 = cam_infos[2].which_camera.clone();
+
+        let snapshot_fut0 = async move {
+            let cmd = timeout(Duration::from_secs(3), cmd_rx0.recv()).await.expect("cmd timeout").expect("closed");
+            let token = cmd.token.expect("token").clone();
+            let snapshot = Snapshot {
+                timestamp: Some(prost_types::Timestamp { seconds: 0, nanos: 0 }),
+                which_camera: which0,
+                poses: poses_cam0,
+                image: None,
+            };
+            let msg = CameraMessage {
+                msg: Some(camera_message::Msg::Response(posenet_vr_hub::grpc::proto::CommandResponse {
+                    response: Some(command_response::Response::Snapshot(snapshot)),
+                })),
+            };
+            let stream = tokio_stream::iter([CameraMessage { msg: Some(camera_message::Msg::Token(token)) }, msg]);
+            client0.camera_data_sink(Request::new(stream)).await.expect("data_sink")
+        };
+        let snapshot_fut1 = async move {
+            let cmd = timeout(Duration::from_secs(3), cmd_rx1.recv()).await.expect("cmd timeout").expect("closed");
+            let token = cmd.token.expect("token").clone();
+            let snapshot = Snapshot {
+                timestamp: Some(prost_types::Timestamp { seconds: 0, nanos: 0 }),
+                which_camera: which1,
+                poses: poses_cam1,
+                image: None,
+            };
+            let msg = CameraMessage {
+                msg: Some(camera_message::Msg::Response(posenet_vr_hub::grpc::proto::CommandResponse {
+                    response: Some(command_response::Response::Snapshot(snapshot)),
+                })),
+            };
+            let stream = tokio_stream::iter([CameraMessage { msg: Some(camera_message::Msg::Token(token)) }, msg]);
+            client1.camera_data_sink(Request::new(stream)).await.expect("data_sink")
+        };
+        let snapshot_fut2 = async move {
+            let cmd = timeout(Duration::from_secs(3), cmd_rx2.recv()).await.expect("cmd timeout").expect("closed");
+            let token = cmd.token.expect("token").clone();
+            let snapshot = Snapshot {
+                timestamp: Some(prost_types::Timestamp { seconds: 0, nanos: 0 }),
+                which_camera: which2,
+                poses: poses_cam2_swapped,
+                image: None,
+            };
+            let msg = CameraMessage {
+                msg: Some(camera_message::Msg::Response(posenet_vr_hub::grpc::proto::CommandResponse {
+                    response: Some(command_response::Response::Snapshot(snapshot)),
+                })),
+            };
+            let stream = tokio_stream::iter([CameraMessage { msg: Some(camera_message::Msg::Token(token)) }, msg]);
+            client2.camera_data_sink(Request::new(stream)).await.expect("data_sink")
+        };
+
+        let (admin_resp, _, _, _) = tokio::join!(
+            admin.take_snapshots(Request::new(take_req)),
+            snapshot_fut0,
+            snapshot_fut1,
+            snapshot_fut2,
+        );
+
+        let admin_resp = admin_resp.expect("take_snapshots").into_inner();
+        assert!(!admin_resp.snapshot_id.is_empty());
+        assert_eq!(admin_resp.snapshots.len(), 3);
+        assert_eq!(admin_resp.poses3d.len(), 2,
+            "pose matching with 3 cams and swapped order on cam2 should still yield 2 correct 3D poses");
+        assert!(admin_resp.poses3d[0].nose.is_some());
+        assert!(admin_resp.poses3d[1].nose.is_some());
+    })
+    .await
+    .expect("test timeout");
+}
+
 // ---- Triangulate (streaming RPC) ----
 
 #[tokio::test]

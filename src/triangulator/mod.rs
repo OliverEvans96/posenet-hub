@@ -16,7 +16,7 @@ use crate::openmvg::openmvg::{triangulate, triangulate_many};
 use crate::utils::transpose_vecvec;
 
 mod pose_matching;
-pub use pose_matching::{group_poses_by_index, match_poses, MatchedGroup};
+pub use pose_matching::{group_poses_by_index, match_poses, triangulate_matched_groups, MatchedGroup};
 
 /// Default reprojection threshold (pixels) for pose matching; pairs above this are rejected.
 pub const POSE_MATCHING_REPROJECTION_THRESHOLD_PX: f64 = 50.0;
@@ -516,11 +516,14 @@ impl Triangulator {
                             group_name,
                             e
                         );
-                        sleep(config.poll_interval).await;
-                        continue;
+                        (vec![], vec![])
                     }
                 }
             };
+            if camera_matrices.is_empty() {
+                sleep(config.poll_interval).await;
+                continue;
+            }
 
             let mut labeled_poses = LabeledPoses3D {
                 group_name: group_name.clone(),

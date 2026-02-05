@@ -522,6 +522,7 @@ impl HubService for HubServer {
                     let stream_state = stream_state.clone();
                     tokio::spawn(async move {
                         pin_mut!(stream);
+                        let mut frames_cached: u64 = 0;
                         while let Some(response) = stream.next().await {
                             if let Some(command_response::Response::Snapshot(snapshot)) =
                                 response.response
@@ -533,12 +534,22 @@ impl HubService for HubServer {
                                     .unwrap_or_else(|| (String::new(), String::new()));
                                 if !g.is_empty() && !c.is_empty() {
                                     let arc = Arc::new(snapshot);
+                                    let camera_name = c.clone();
                                     stream_cache
                                         .write()
                                         .entry(g.clone())
                                         .or_insert_with(|| RwLock::new(HashMap::new()))
                                         .write()
                                         .insert(c, Arc::clone(&arc));
+                                    frames_cached += 1;
+                                    if frames_cached % 30 == 0 {
+                                        log::debug!(
+                                            "stream_cache: {} frames cached for {}/{}",
+                                            frames_cached,
+                                            g,
+                                            camera_name
+                                        );
+                                    }
                                     let snapshot_for_tx = Arc::try_unwrap(arc)
                                         .unwrap_or_else(|a| (*a).clone());
                                     let _ = snapshots_tx.send(snapshot_for_tx);
@@ -616,22 +627,14 @@ impl HubService for HubServer {
             if matrices.len() != snapshots.len() {
                 vec![]
             } else {
-                let n_subjects = snapshots.iter().map(|s| s.poses.len()).min().unwrap_or(0);
-                (0..n_subjects)
-                    .filter_map(|subject_idx| {
-                        let poses: Vec<Pose2D> = snapshots
-                            .iter()
-                            .filter_map(|s| s.poses.get(subject_idx).cloned())
-                            .collect();
-                        if poses.len() == snapshots.len() {
-                            crate::triangulator::triangulate_from_poses_and_camera_matrices(
-                                poses, &matrices,
-                            )
-                            .ok()
-                        } else {
-                            None
-                        }
-                    })
+                let groups = crate::triangulator::match_poses(
+                    &snapshots,
+                    &matrices,
+                    crate::triangulator::POSE_MATCHING_REPROJECTION_THRESHOLD_PX,
+                );
+                crate::triangulator::triangulate_matched_groups(&groups, &matrices)
+                    .into_iter()
+                    .filter_map(Result::ok)
                     .collect()
             }
         } else {

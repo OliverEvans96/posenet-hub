@@ -562,6 +562,7 @@ impl Default for WebSocketConfig {
 }
 
 /// Type for a sink that sends WebSocket text messages.
+#[allow(dead_code)]
 type WsSender = futures_util::stream::SplitSink<
     tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
     Message,
