@@ -322,7 +322,8 @@ main.main-content {
   display: block;
   width: 320px;
   height: 240px;
-  background: #0d1117;
+  /* Transparent so the MJPEG <img> behind the canvas is visible; skeleton is drawn on top */
+  background: transparent;
 }
 
 .camera-status {

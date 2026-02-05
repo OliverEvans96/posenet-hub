@@ -143,11 +143,16 @@ export function createCameraViews(container, options = {}) {
     });
   }
 
+  const loggedUrls = new Set();
   function updatePanelVideoSrc(entry, cameraName) {
     const url = getCameraStreamUrl(videoBaseUrl, groupName, cameraName);
     if (url && entry.img) {
       entry.img.src = url;
       entry.img.style.display = '';
+      if (!loggedUrls.has(url)) {
+        loggedUrls.add(url);
+        console.debug('[cameraViews] MJPEG stream URL:', url);
+      }
     } else if (entry.img) {
       entry.img.src = '';
       entry.img.style.display = 'none';

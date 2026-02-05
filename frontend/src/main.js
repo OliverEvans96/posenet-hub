@@ -94,6 +94,8 @@ function getVideoBaseUrl() {
 
 /** If set, only show pose stream for this group; empty = show all. */
 let selectedGroupFilter = '';
+/** Set once from first pose message when no group selected, so camera MJPEG URLs work. */
+let hasSetVideoGroupFromPose = false;
 
 let adminResponseHandler = null;
 
@@ -111,6 +113,11 @@ const client = createPoseStreamClient(wsUrl, {
     rateWindow.push(lastMessageTime);
     while (rateWindow.length > 0 && lastMessageTime - rateWindow[0] > RATE_WINDOW_MS) rateWindow.shift();
     if (selectedGroupFilter !== '' && msg.group_name !== selectedGroupFilter) return;
+    // When no group is selected, set video URLs from first pose message so camera feeds can load
+    if (!selectedGroupFilter && msg.group_name && cameraViews?.setVideoOptions && !hasSetVideoGroupFromPose) {
+      hasSetVideoGroupFromPose = true;
+      cameraViews.setVideoOptions(getVideoBaseUrl(), msg.group_name);
+    }
     scene.update(msg);
     scene.setKeypointHighlight(selectedKeypointIndex);
     scene.setHighlight(selectedCameraName);
@@ -328,6 +335,7 @@ function setOutput(id, text, isError = false) {
 if (groupSelect) {
   groupSelect.addEventListener('change', () => {
     selectedGroupFilter = groupSelect.value;
+    if (!selectedGroupFilter) hasSetVideoGroupFromPose = false;
     if (cameraViews && cameraViews.setVideoOptions) {
       cameraViews.setVideoOptions(getVideoBaseUrl(), selectedGroupFilter || null);
     }
@@ -472,7 +480,7 @@ bindAdmin('btn-get-camera-info', AdminMethods.GetCameraInfo, () => ({ group_name
 
 bindAdmin('btn-stream-start', AdminMethods.StreamControl, () => ({
   group_name: getSelectedGroup(),
-  command: { start: { with_pose: true, with_image: true, fps: 0 } },
+  command: { start: { with_pose: true, with_image: true, fps: 10 } },
 }), OUT_CONTROL_ID);
 bindAdmin('btn-stream-stop', AdminMethods.StreamControl, () => ({
   group_name: getSelectedGroup(),

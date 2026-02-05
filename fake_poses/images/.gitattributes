@@ -1,0 +1,4 @@
+table.png filter=lfs diff=lfs merge=lfs -text
+truck.png filter=lfs diff=lfs merge=lfs -text
+africa.jpg filter=lfs diff=lfs merge=lfs -text
+trash-bin.jpg filter=lfs diff=lfs merge=lfs -text
