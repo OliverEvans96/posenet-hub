@@ -17,12 +17,15 @@ cameras:
   # Coordinates are in meters. Convention used here: world_up is +Z.
   # Place cameras like wall/ceiling mounts in a medium room, looking at the subject around chest height.
   # fov_deg is horizontal field-of-view in degrees.
+  # Optional feed_path: path to an image or animated GIF to stream as this camera's feed
+  # (cropped to calibration aspect ratio, e.g. 640x480). Omit for pose-only streaming.
 
   # Front-left (ceiling-ish corner)
   - name: "cam_front_left"
     position: [3.2, 3.0, 2.4]
     look_at: [0.0, 0.0, 1.0]
     fov_deg: 60
+    # feed_path: "assets/smiley.png"  # optional: stream this image as camera feed
 
   # Front-right (ceiling-ish corner)
   - name: "cam_front_right"

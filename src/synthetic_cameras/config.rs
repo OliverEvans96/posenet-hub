@@ -89,4 +89,25 @@ cameras:
         assert_eq!(config.fps, 15.0);
         assert!((config.rotation_speed_rad_per_sec - 0.2).abs() < 1e-10);
     }
+
+    #[test]
+    fn config_deserialize_with_feed_path() {
+        let yaml = r#"
+hub_url: "http://127.0.0.1:50051"
+group_name: "synthetic"
+pose_csv_path: "fake_poses/running_pose.csv"
+cameras:
+  - position: [2, 1.5, 3]
+    look_at: [0, 0, 0]
+    fov_deg: 75
+    feed_path: "assets/smiley.png"
+  - position: [-2, 1.5, 3]
+    look_at: [0, 0, 0]
+    fov_deg: 75
+"#;
+        let config: SyntheticCamerasConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.cameras.len(), 2);
+        assert!(config.cameras[0].feed_path.is_some());
+        assert!(config.cameras[1].feed_path.is_none());
+    }
 }

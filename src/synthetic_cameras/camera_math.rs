@@ -2,6 +2,7 @@
 
 use nalgebra::{Matrix3, Matrix3x4, Point3, Rotation3, Vector3};
 use serde::Deserialize;
+use std::path::PathBuf;
 
 use crate::grpc::proto::{CalibrationParameters, CameraExtrinsics, CameraIntrinsics};
 
@@ -28,6 +29,9 @@ pub struct CameraConfig {
     /// Optional display name for this camera.
     #[serde(default)]
     pub name: Option<String>,
+    /// Optional path to an image or video file to stream as this camera's feed (cropped to calibration aspect ratio).
+    #[serde(default)]
+    pub feed_path: Option<PathBuf>,
 }
 
 /// Build a 3x4 [R|t] extrinsics matrix: world to camera.
@@ -132,6 +136,16 @@ impl CameraConfig {
             DEFAULT_CY,
         )
     }
+
+    /// Image dimensions (width, height) in pixels for this camera's calibration.
+    pub fn image_dimensions(&self) -> (u32, u32) {
+        let (w, h) = if self.fov_deg.is_some() {
+            (DEFAULT_IMAGE_WIDTH_PX, DEFAULT_IMAGE_HEIGHT_PX)
+        } else {
+            (DEFAULT_IMAGE_WIDTH_PX, DEFAULT_IMAGE_HEIGHT_PX)
+        };
+        (w as u32, h as u32)
+    }
 }
 
 #[cfg(test)]
@@ -163,6 +177,7 @@ mod tests {
             look_at: [0.0, 0.0, 0.0],
             fov_deg: None,
             name: None,
+            feed_path: None,
         };
         let cal = config.calibration();
         let ext = cal.extrinsics.as_ref().unwrap();
@@ -182,6 +197,7 @@ mod tests {
             look_at: [0.0, 0.0, 0.0],
             fov_deg: Some(90.0),
             name: None,
+            feed_path: None,
         };
         let cal = config.calibration();
         let k = &cal.intrinsics.as_ref().unwrap().camera_matrix;

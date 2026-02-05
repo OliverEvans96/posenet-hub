@@ -18,7 +18,7 @@ use posenet_vr_hub::grpc::proto::{
 };
 use posenet_vr_hub::synthetic_cameras::{
     load_pose_csv, points_to_pose3d, project_pose3d_to_pose2d, rotate_pose_around,
-    rotation_around_z_rad, SyntheticCamerasConfig,
+    rotation_around_z_rad, FeedSource, SyntheticCamerasConfig,
 };
 
 #[derive(Debug, StructOpt)]
@@ -41,6 +41,11 @@ struct CameraState {
     calibration: CalibrationParameters,
     which_camera: CameraIdentifier,
     snapshot_tx: mpsc::UnboundedSender<Snapshot>,
+    /// Optional feed (image/video); when set, frames are streamed as camera image.
+    feed: Option<FeedSource>,
+    /// Target image dimensions for feed (from calibration aspect ratio).
+    image_width: u32,
+    image_height: u32,
 }
 
 async fn run_camera_control_listener(
@@ -139,6 +144,7 @@ async fn main() -> anyhow::Result<()> {
     let interval_duration = Duration::from_secs_f32(1.0 / config.fps);
     let rotation_speed = config.rotation_speed_rad_per_sec;
 
+    let config_dir = args.config.parent().unwrap_or_else(|| std::path::Path::new("."));
     let mut cameras = Vec::new();
     for (i, cam_cfg) in config.cameras.iter().enumerate() {
         let channel = Channel::from_shared(hub_url.clone())?.connect().await?;
@@ -148,6 +154,31 @@ async fn main() -> anyhow::Result<()> {
             .clone()
             .unwrap_or_else(|| format!("synthetic_{}", i));
         let calibration = cam_cfg.calibration();
+        let (image_width, image_height) = cam_cfg.image_dimensions();
+        let feed = if let Some(ref feed_path) = cam_cfg.feed_path {
+            let resolved = if feed_path.is_absolute() {
+                feed_path.clone()
+            } else {
+                config_dir.join(feed_path)
+            };
+            match FeedSource::load(&resolved) {
+                Ok(f) => {
+                    log::info!("Camera {} feed loaded from {:?}", camera_name, resolved);
+                    Some(f)
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Camera {} feed_path {:?} failed to load: {}",
+                        camera_name,
+                        resolved,
+                        e
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let which_camera = CameraIdentifier {
             group_name: group_name.clone(),
             camera_name: camera_name.clone(),
@@ -190,8 +221,13 @@ async fn main() -> anyhow::Result<()> {
             calibration,
             which_camera,
             snapshot_tx,
+            feed,
+            image_width,
+            image_height,
         });
     }
+
+    let with_image = config.cameras.iter().any(|c| c.feed_path.is_some());
 
     // Tell the hub to start streaming for this group so it sends StartStreaming to each camera.
     // Until this runs, cameras never open CameraDataSink and no snapshots reach the triangulator.
@@ -200,8 +236,8 @@ async fn main() -> anyhow::Result<()> {
     posenet_vr_hub::grpc::client::stream_control_start(
         &mut admin_client,
         group_name.clone(),
-        true,  // with_pose
-        false, // with_image
+        true,     // with_pose
+        with_image, // with_image when any camera has a feed
         Some(config.fps),
     )
     .await
@@ -231,14 +267,16 @@ async fn main() -> anyhow::Result<()> {
         rotate_pose_around(&mut points, pose_center, &rot);
         let pose3d = points_to_pose3d(&points, 1.0);
 
-        for cam in &cameras {
+        for cam in &mut cameras {
             match project_pose3d_to_pose2d(&pose3d, &cam.calibration) {
                 Ok(pose2d) => {
+                    let (w, h) = (cam.image_width, cam.image_height);
+                    let image = cam.feed.as_mut().and_then(|f| f.next_frame(w, h));
                     let snapshot = Snapshot {
                         timestamp: Some(SystemTime::now().into()),
                         which_camera: Some(cam.which_camera.clone()),
                         poses: vec![pose2d],
-                        image: None,
+                        image,
                     };
                     let _ = cam.snapshot_tx.send(snapshot);
                 }

@@ -90,6 +90,7 @@ mod tests {
             look_at: [0.0, 0.0, 0.0],
             fov_deg: None,
             name: None,
+            feed_path: None,
         };
         let cal = config.calibration();
         let points: Vec<_> = (0..17).map(|_| Point3::new(0.0, 0.0, 0.0)).collect();
@@ -108,6 +109,7 @@ mod tests {
             look_at: [0.0, 0.0, 0.0],
             fov_deg: Some(90.0),
             name: None,
+            feed_path: None,
         };
         let cal = config.calibration();
         let points: Vec<_> = (0..17).map(|_| Point3::new(10.0, 0.0, 0.0)).collect();
