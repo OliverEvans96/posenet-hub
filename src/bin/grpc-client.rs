@@ -162,6 +162,20 @@ enum AdminCommand {
         #[structopt(flatten)]
         common: CommonOpts,
     },
+
+    /// Tell cameras to update themselves (pull latest code)
+    UpdateCameras {
+        /// Group name
+        #[structopt(short, long)]
+        group: String,
+
+        /// Optional camera name (default: whole group)
+        #[structopt(short, long)]
+        camera: Option<String>,
+
+        #[structopt(flatten)]
+        common: CommonOpts,
+    },
 }
 
 // ============== Camera subcommands ==============
@@ -233,6 +247,7 @@ impl AdminCommand {
             AdminCommand::GetCurrent { common, .. } => common,
             AdminCommand::Calibrate { common, .. } => common,
             AdminCommand::Ping { common, .. } => common,
+            AdminCommand::UpdateCameras { common, .. } => common,
         }
     }
 }
@@ -394,6 +409,18 @@ async fn run_admin_ping(
     Ok(())
 }
 
+async fn run_admin_update_cameras(
+    client: &mut HubServiceClient<Channel>,
+    group: String,
+    camera: Option<String>,
+) -> anyhow::Result<()> {
+    let which = grpc_client::build_camera_identifier(group, camera.unwrap_or_default());
+    let req = grpc_client::build_update_cameras_request(which);
+    let resp = grpc_client::update_cameras(client, req).await.map_err(grpc_err)?;
+    println!("cameras_updated: {}", resp.cameras_updated);
+    Ok(())
+}
+
 // ---------- Camera handlers ----------
 
 async fn stream_poses(
@@ -490,6 +517,9 @@ pub async fn main() -> anyhow::Result<()> {
             AdminCommand::Ping {
                 group, camera, timeout, ..
             } => run_admin_ping(&mut client, group, camera, timeout).await?,
+            AdminCommand::UpdateCameras { group, camera, .. } => {
+                run_admin_update_cameras(&mut client, group, camera).await?
+            }
         },
         GrpcClientCommand::Camera { cmd } => match cmd {
             CameraCommand::StreamPoses { camera, .. } => {
