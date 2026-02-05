@@ -12,7 +12,7 @@ use thiserror::Error;
 use tokio::select;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Receiver;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::{ReceiverStream, UnboundedReceiverStream};
 use tonic::{transport::Server, Request, Response, Status};
 use uuid::Uuid;
 
@@ -38,10 +38,9 @@ pub struct HubServer {
     /// active camera session tokens
     /// indexed by group name, then camera name
     session_tokens: RwLock<HashMap<String, RwLock<HashMap<String, SessionToken>>>>,
-    /// Latest streamed snapshots
-    /// indexed by group name, then camera name
-    /// Arc so StartStreaming tasks can update it
-    stream_cache: Arc<RwLock<HashMap<String, RwLock<HashMap<String, Snapshot>>>>>,
+    /// Latest streamed snapshots (Arc to avoid cloning ~900KB image on every frame).
+    /// Indexed by group name, then camera name.
+    stream_cache: Arc<RwLock<HashMap<String, RwLock<HashMap<String, Arc<Snapshot>>>>>>,
     /// Which groups are currently streaming and their params
     stream_state: Arc<RwLock<HashMap<String, StreamParameters>>>,
     /// Active camera control channels, indexed by session token
@@ -49,8 +48,9 @@ pub struct HubServer {
     control_channels: RwLock<HashMap<SessionToken, mpsc::Sender<CameraControlCommand>>>,
     /// Pending control stream receivers; one per session, consumed when camera calls CameraControl
     pending_control_rx: RwLock<HashMap<SessionToken, mpsc::Receiver<CameraControlCommand>>>,
-    /// Channels to route incoming data from cameras, indexed by command token
-    data_channels: RwLock<HashMap<CommandToken, mpsc::Sender<CommandResponseMessage>>>,
+    /// Channels to route incoming data from cameras, indexed by command token.
+    /// Unbounded so gRPC camera_data_sink never blocks on slow stream_cache consumers.
+    data_channels: RwLock<HashMap<CommandToken, mpsc::UnboundedSender<CommandResponseMessage>>>,
     /// Stored CameraInfo per camera (from Hello), for GetCameraInfo and TakeSnapshots
     camera_info: RwLock<HashMap<CameraIdentifier, CameraInfo>>,
 }
@@ -82,7 +82,7 @@ impl HubServer {
         &self,
         group_name: &str,
         camera_name: &str,
-    ) -> Option<Snapshot> {
+    ) -> Option<Arc<Snapshot>> {
         let cache = self.stream_cache.read();
         cache
             .get(group_name)
@@ -305,7 +305,9 @@ impl HubService for HubServer {
             if camera_responses.len() > 0 {
                 let response = ServerSnapshotResponse {
                     snapshot_id,
-                    messages: camera_responses,
+                    timestamp: None,
+                    snapshots: camera_responses,
+                    poses3d: vec![],
                 };
                 Ok(Response::new(response))
             } else {
@@ -424,26 +426,16 @@ impl HubService for HubServer {
             };
 
             // Send a Begin message to indicate that the CommandToken has been received,
-            // and streaming data may follow.
+            // and streaming data may follow. UnboundedSender::send is non-blocking.
             tx.send(CommandResponseMessage::Begin)
-                .await
                 .or(Err(Status::failed_precondition("Data channel closed.")))?;
 
-            // TODO: What would Some(Err(_)) mean here? And how to deal with it?
+            // Unbounded channel: we never block here, so the gRPC stream can drain at full speed.
             while let Some(Ok(CameraMessage {
                 msg: Some(camera_message::Msg::Response(command_response)),
             })) = stream.next().await
             {
-                // TODO: This could be made more efficient, possibly by using tokio::spawn.
-                // It's not necessary to wait for sending to complete
-                // before retrieving the next value from the stream.
-
-                // But I couldn't get it to work,
-                // related to https://github.com/rust-lang/rust/issues/78633
-
-                // Listen for incoming messages in stream
                 tx.send(CommandResponseMessage::Data(command_response))
-                    .await
                     .or(Err(Status::failed_precondition("Data channel closed.")))?;
             }
 
@@ -540,13 +532,16 @@ impl HubService for HubServer {
                                     .map(|id| (id.group_name.clone(), id.camera_name.clone()))
                                     .unwrap_or_else(|| (String::new(), String::new()));
                                 if !g.is_empty() && !c.is_empty() {
+                                    let arc = Arc::new(snapshot);
                                     stream_cache
                                         .write()
                                         .entry(g.clone())
                                         .or_insert_with(|| RwLock::new(HashMap::new()))
                                         .write()
-                                        .insert(c, snapshot.clone());
-                                    let _ = snapshots_tx.send(snapshot);
+                                        .insert(c, Arc::clone(&arc));
+                                    let snapshot_for_tx = Arc::try_unwrap(arc)
+                                        .unwrap_or_else(|a| (*a).clone());
+                                    let _ = snapshots_tx.send(snapshot_for_tx);
                                 }
                             }
                         }
@@ -609,39 +604,44 @@ impl HubService for HubServer {
         }
         let snapshot_id = Uuid::new_v4().to_string();
         let timestamp = SystemTime::now();
-        let pose3d = if want_pose3d && snapshots.len() >= 2 {
+        let poses3d = if want_pose3d && snapshots.len() >= 2 {
             let camera_info_hm = self.camera_info.read();
-            let poses: Vec<Pose2D> = snapshots
+            let matrices: Vec<_> = snapshots
                 .iter()
-                .filter_map(|s| s.poses.first().cloned())
+                .filter_map(|s| s.which_camera.as_ref())
+                .filter_map(|id| camera_info_hm.get(id))
+                .filter_map(|info| info.calibration.as_ref())
+                .filter_map(|cal| crate::triangulator::calculate_camera_matrix(cal).ok())
                 .collect();
-            if poses.len() == snapshots.len() {
-                let matrices: Vec<_> = snapshots
-                    .iter()
-                    .filter_map(|s| s.which_camera.as_ref())
-                    .filter_map(|id| camera_info_hm.get(id))
-                    .filter_map(|info| info.calibration.as_ref())
-                    .filter_map(|cal| crate::triangulator::calculate_camera_matrix(cal).ok())
-                    .collect();
-                if matrices.len() == snapshots.len() {
-                    crate::triangulator::triangulate_from_poses_and_camera_matrices(
-                        poses, &matrices,
-                    )
-                    .ok()
-                } else {
-                    None
-                }
+            if matrices.len() != snapshots.len() {
+                vec![]
             } else {
-                None
+                let n_subjects = snapshots.iter().map(|s| s.poses.len()).min().unwrap_or(0);
+                (0..n_subjects)
+                    .filter_map(|subject_idx| {
+                        let poses: Vec<Pose2D> = snapshots
+                            .iter()
+                            .filter_map(|s| s.poses.get(subject_idx).cloned())
+                            .collect();
+                        if poses.len() == snapshots.len() {
+                            crate::triangulator::triangulate_from_poses_and_camera_matrices(
+                                poses, &matrices,
+                            )
+                            .ok()
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
             }
         } else {
-            None
+            vec![]
         };
         Ok(Response::new(ServerSnapshotResponse {
             snapshot_id,
             timestamp: Some(timestamp.into()),
             snapshots,
-            pose3d,
+            poses3d,
         }))
     }
 
@@ -656,13 +656,19 @@ impl HubService for HubServer {
         let snapshots: Vec<Snapshot> = if camera_name.is_empty() {
             cache
                 .get(&group_name)
-                .map(|group_hm| group_hm.read().values().cloned().collect())
+                .map(|group_hm| {
+                    group_hm
+                        .read()
+                        .values()
+                        .map(|arc| arc.as_ref().clone())
+                        .collect::<Vec<Snapshot>>()
+                })
                 .unwrap_or_default()
         } else {
             cache
                 .get(&group_name)
                 .and_then(|group_hm| group_hm.read().get(&camera_name).cloned())
-                .map(|s| vec![s])
+                .map(|s| vec![(*s).clone()])
                 .unwrap_or_default()
         };
         if snapshots.is_empty() {
@@ -677,7 +683,7 @@ impl HubService for HubServer {
                 .and_then(|s| s.timestamp.clone())
                 .or_else(|| Some(SystemTime::now().into())),
             snapshots,
-            pose3d: None,
+            poses3d: vec![],
         }))
     }
 
@@ -735,32 +741,38 @@ impl HubService for HubServer {
         {
             // Ping some cameras
             let command = camera_control_command::Command::Ping(Ping {});
-            let send_time = Instant::now();
+            let send_time = Arc::new(Instant::now());
 
             let response_stream_futures = self
                 .execute_command(which_camera, command)
                 .await
                 .map_err(|e| Status::internal(e.to_string()))?;
             let num_pings = response_stream_futures.len();
-            // TODO: Await responses in parallel w/ timeout
             let (ping_tx, ping_rx) = mpsc::channel(num_pings);
-            let _mapped_futures: Vec<_> = response_stream_futures
-                .into_iter()
-                .map(|future| {
-                    // Chain future
-                    future.then(|(_camera, _)| async {
-                        // Ignore the contents of the message stream - ping only sends a single message.
-                        // Once we receive the stream, then the ping has returned.
-                        let receive_time = Instant::now();
-                        let elapsed = receive_time - send_time;
-                        let ping_results = PingResults {
-                            response_time: Some(elapsed.into()),
-                            which_camera: None,
-                        };
-                        let _ = ping_tx.send(ping_results).await;
+            let mapped_futures: Vec<Pin<Box<dyn Future<Output = ()> + Send>>> =
+                response_stream_futures
+                    .into_iter()
+                    .map(|future| {
+                        let ping_tx = ping_tx.clone();
+                        let send_time = Arc::clone(&send_time);
+                        let fut = future.then(move |(_camera, _)| {
+                            let ping_tx = ping_tx.clone();
+                            let send_time = Arc::clone(&send_time);
+                            async move {
+                                // Ignore the contents of the message stream - ping only sends a single message.
+                                // Once we receive the stream, then the ping has returned.
+                                let receive_time = Instant::now();
+                                let elapsed = receive_time.duration_since(*send_time);
+                                let ping_results = PingResults {
+                                    response_time: Some(elapsed.into()),
+                                    which_camera: None,
+                                };
+                                let _ = ping_tx.send(ping_results).await;
+                            }
+                        });
+                        Box::pin(fut) as Pin<Box<dyn Future<Output = ()> + Send>>
                     })
-                })
-                .collect();
+                    .collect();
 
             // TODO: Set default timeout somewhere else?
             let timeout = maybe_timeout
@@ -770,10 +782,13 @@ impl HubService for HubServer {
             let mut results_buf = Vec::new();
             let watcher = ChannelWatcher::new(ping_rx, &mut results_buf, num_pings);
 
-            // Return results when all have been received
-            // or timeout is reached, whichever comes first.
+            // Run response futures (send to ping_tx) and watcher (fill results_buf) in parallel;
+            // return when all responses received or timeout.
             let results = select! {
-                _ = watcher => results_buf,
+                _ = futures::future::join(
+                    futures::future::join_all(mapped_futures),
+                    watcher,
+                ) => results_buf,
                 _ = tokio::time::sleep(timeout) => results_buf
             };
 
@@ -793,9 +808,25 @@ impl HubService for HubServer {
             .which_camera
             .ok_or_else(|| Status::invalid_argument("UpdateCameras requires which_camera"))?;
 
-        let sessions = self.get_sessions(which_camera).await;
+        let sessions = self.get_sessions(which_camera.clone()).await;
+        log::info!(
+            "UpdateCameras: which_camera group={:?} camera={:?} -> {} session(s)",
+            which_camera.group_name,
+            which_camera.camera_name,
+            sessions.len()
+        );
+
         let session_tokens: Vec<_> = sessions.iter().map(|s| s.token.clone()).collect();
         let control_channels = self.get_control_channels(&session_tokens).await;
+
+        if control_channels.len() < session_tokens.len() {
+            log::warn!(
+                "UpdateCameras: {} session(s) but only {} control channel(s) (cameras may not have called CameraControl yet)",
+                session_tokens.len(),
+                control_channels.len()
+            );
+        }
+
         let cameras_updated = control_channels.len() as i32;
 
         let command_tokens: Vec<_> = control_channels
@@ -807,6 +838,8 @@ impl HubService for HubServer {
         send_control_command(command, control_channels, command_tokens)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
+
+        log::info!("UpdateCameras: sent Update command to {} camera(s)", cameras_updated);
 
         Ok(Response::new(UpdateCamerasResponse { cameras_updated }))
     }
@@ -1192,7 +1225,7 @@ struct CameraSession {
 
 struct CommandResponseStream {
     camera: CameraUniqueIdentifier,
-    rx: mpsc::Receiver<CommandResponseMessage>,
+    rx: mpsc::UnboundedReceiver<CommandResponseMessage>,
 }
 
 async fn send_control_command(
@@ -1330,15 +1363,15 @@ impl HubServer {
     }
 
     /// Create data channels for command responses.
-    /// Store `Sender`s for later lookup, and return `Receiver`s immediately.
+    /// Unbounded so camera_data_sink never blocks when the stream_cache consumer is slow.
     async fn create_data_channels(
         &self,
         tokens: Vec<CommandToken>,
-    ) -> Vec<mpsc::Receiver<CommandResponseMessage>> {
+    ) -> Vec<mpsc::UnboundedReceiver<CommandResponseMessage>> {
         let mut rxs = Vec::with_capacity(tokens.len());
         let mut rx_hm = self.data_channels.write();
         for token in tokens {
-            let (tx, rx) = mpsc::channel(10);
+            let (tx, rx) = mpsc::unbounded_channel();
             rxs.push(rx);
             rx_hm.insert(token, tx);
         }
@@ -1401,7 +1434,7 @@ impl HubServer {
         let stream_futures: Vec<_> = response_streams
             .into_iter()
             .map(|CommandResponseStream { camera, rx }| {
-                let stream_fut = ReceiverStream::new(rx).into_future();
+                let stream_fut = UnboundedReceiverStream::new(rx).into_future();
 
                 stream_fut.map(|(head, tail)| {
                     // Wait for first message indicating that the stream has started.

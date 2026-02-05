@@ -108,7 +108,8 @@ async fn main() -> anyhow::Result<()> {
         Box::pin(std::future::pending())
     };
 
-    let run_http: Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> = if opts.ws {
+    // HTTP MJPEG camera streams: always run so camera feeds are available (e.g. for frontend or other clients).
+    let run_http: Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> = {
         let http_server = HttpServer::new(HttpConfig::default(), hub.clone());
         Box::pin(async move {
             match http_server.run().await {
@@ -116,8 +117,6 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => Err(anyhow::Error::msg(e.to_string())),
             }
         })
-    } else {
-        Box::pin(std::future::pending())
     };
 
     tokio::try_join!(run_controller, run_grpc, run_ws, run_http)?;

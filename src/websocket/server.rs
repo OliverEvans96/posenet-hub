@@ -279,7 +279,7 @@ async fn handle_ws_admin(hub: &HubServer, req: WsAdminRequest) -> String {
                     .and_then(|c| c.get("start").cloned())
                     .unwrap_or(serde_json::Value::Null);
                 let with_pose = start_params.get("with_pose").and_then(|v| v.as_bool()).unwrap_or(true);
-                let with_image = start_params.get("with_image").and_then(|v| v.as_bool()).unwrap_or(false);
+                let with_image = start_params.get("with_image").and_then(|v| v.as_bool()).unwrap_or(true);
                 let fps = start_params.get("fps").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
                 StreamControlRequest {
                     group_name: group_name.clone(),
@@ -495,10 +495,11 @@ fn camera_info_to_json(info: CameraInfo) -> serde_json::Value {
 }
 
 fn server_snapshot_response_to_json(r: ServerSnapshotResponse) -> serde_json::Value {
-    let pose3d = r
-        .pose3d
-        .as_ref()
-        .and_then(|p| serde_json::to_value(p).ok());
+    let poses3d: Vec<serde_json::Value> = r
+        .poses3d
+        .iter()
+        .filter_map(|p| serde_json::to_value(p).ok())
+        .collect();
     serde_json::json!({
         "snapshot_id": r.snapshot_id,
         "timestamp": r.timestamp.map(|t| serde_json::json!({
@@ -506,7 +507,7 @@ fn server_snapshot_response_to_json(r: ServerSnapshotResponse) -> serde_json::Va
             "nanos": t.nanos
         })),
         "snapshots": r.snapshots.len(),
-        "pose3d": pose3d
+        "poses3d": poses3d
     })
 }
 

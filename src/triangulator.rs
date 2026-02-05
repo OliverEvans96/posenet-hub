@@ -493,9 +493,15 @@ impl Triangulator {
                 })
                 .collect();
 
+            // Use minimum pose count across cameras (pose order is consistent between cameras).
+            let max_users = current
+                .iter()
+                .map(|s| s.poses.len())
+                .min()
+                .unwrap_or(0);
             let users = {
                 let cameras_guard = cameras.read();
-                group_poses_and_cameras_by_user_impl(&current, &cameras_guard, 1)
+                group_poses_and_cameras_by_user_impl(&current, &cameras_guard, max_users)
             };
             let users = match users {
                 Ok(u) => u,
@@ -1038,5 +1044,36 @@ mod tests {
         assert_eq!(grouped.len(), 1);
         assert_eq!(grouped[0].0.len(), 1);
         assert_eq!(grouped[0].1.len(), 1);
+    }
+
+    #[test]
+    fn test_group_poses_and_cameras_by_user_impl_two_poses() {
+        let cal = make_calibration_identity_like();
+        let matrix = calculate_camera_matrix(&cal).unwrap();
+        let mut cameras = HashMap::new();
+        cameras.insert(
+            "cam_a".to_string(),
+            CameraState {
+                info: CameraInfo {
+                    which_camera: Some(make_camera_identifier("g", "cam_a")),
+                    calibration: Some(cal.clone()),
+                },
+                matrix,
+            },
+        );
+        let pose1 = rand::random::<Pose2D>();
+        let pose2 = rand::random::<Pose2D>();
+        let snapshots = vec![Snapshot {
+            timestamp: None,
+            which_camera: Some(make_camera_identifier("g", "cam_a")),
+            poses: vec![pose1.clone(), pose2.clone()],
+            image: None,
+        }];
+        let grouped = group_poses_and_cameras_by_user_impl(&snapshots, &cameras, 2).unwrap();
+        assert_eq!(grouped.len(), 2, "should have one group per subject");
+        assert_eq!(grouped[0].0.len(), 1);
+        assert_eq!(grouped[0].1.len(), 1);
+        assert_eq!(grouped[1].0.len(), 1);
+        assert_eq!(grouped[1].1.len(), 1);
     }
 }
