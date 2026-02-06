@@ -235,12 +235,6 @@
           # (hint: https://docs.rs/prost-build/#sourcing-protoc):
           # No such file or directory (os error 2)"
           PROTOC = "${pkgs.grpc-tools}/bin/protoc";
-          # FIXME (find a better solution - this only works on my laptop)
-          # PROTOC_INCLUDE =
-          #   "/home/oliver/ucsd/posenet-vr/hub/proto:${pkgs.protobuf}/include";
-
-          # FIXME (without this env var)
-          # CPLUS_INCLUDE_PATH = "${myEigen}/include/eigen3";
           OMVG = "${myOpenMVG}";
           EIGEN_INCLUDE_DIR = "${myEigen}/include/eigen3";
           LIBRARY_PATH = "${myOpenMVG}/lib";
