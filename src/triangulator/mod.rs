@@ -1,5 +1,7 @@
 use nalgebra::{Matrix3, Matrix3x4, Point2, Point3, Vector3};
 use parking_lot::RwLock;
+use rayon::iter::IntoParallelRefIterator;
+use rayon::prelude::*;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
@@ -16,7 +18,9 @@ use crate::openmvg::openmvg::{triangulate, triangulate_many};
 use crate::utils::transpose_vecvec;
 
 mod pose_matching;
+mod pose_smoothing;
 pub use pose_matching::{group_poses_by_index, match_poses, triangulate_matched_groups, MatchedGroup};
+pub use pose_smoothing::{smooth_snapshots, SmoothingConfig};
 
 /// Default reprojection threshold (pixels) for pose matching; pairs above this are rejected.
 pub const POSE_MATCHING_REPROJECTION_THRESHOLD_PX: f64 = 50.0;
@@ -461,6 +465,9 @@ impl Triangulator {
         cameras: Arc<RwLock<HashMap<String, CameraState>>>,
         stream_tx: broadcast::Sender<PoseStreamUpdate>,
     ) -> Result<(), BoxError> {
+        let smoothing_config = SmoothingConfig::default();
+        let mut smoothing_state = HashMap::new();
+
         loop {
             let (current, current_cameras, poses_len, poses_is_empty) = {
                 let poses_guard = poses.read();
@@ -488,7 +495,9 @@ impl Triangulator {
                 );
             }
 
-            let camera_views: Vec<CameraView> = current
+            let current_smoothed = smooth_snapshots(&current, &mut smoothing_state, &smoothing_config);
+
+            let camera_views: Vec<CameraView> = current_smoothed
                 .iter()
                 .filter_map(|s| {
                     let name = s.which_camera.as_ref()?.camera_name.clone();
@@ -501,10 +510,10 @@ impl Triangulator {
 
             let (camera_matrices, groups) = {
                 let cameras_guard = cameras.read();
-                match get_cameras_for_snapshots_impl(&current, &cameras_guard) {
+                match get_cameras_for_snapshots_impl(&current_smoothed, &cameras_guard) {
                     Ok(matrices) => {
                         let groups = match_poses(
-                            &current,
+                            &current_smoothed,
                             &matrices,
                             POSE_MATCHING_REPROJECTION_THRESHOLD_PX,
                         );
@@ -525,48 +534,43 @@ impl Triangulator {
                 continue;
             }
 
-            let mut labeled_poses = LabeledPoses3D {
+            let triangulated: Vec<Pose3D> = groups
+                .par_iter()
+                .filter_map(|group: &MatchedGroup| {
+                    let (poses_3d, matrices) = group.to_poses_and_matrices(&camera_matrices)?;
+                    let n_views = matrices.len();
+                    if n_views < config.min_cameras {
+                        return None;
+                    }
+                    match triangulate_from_poses_and_camera_matrices_partial(&poses_3d, &matrices) {
+                        Ok(pose3d) => {
+                            log::info!(
+                                "Triangulator [{}]: triangulated 1 pose ({} views), broadcasting",
+                                group_name,
+                                n_views
+                            );
+                            Some(pose3d)
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Triangulator [{}]: triangulate failed ({} views): {}",
+                                group_name,
+                                n_views,
+                                e
+                            );
+                            None
+                        }
+                    }
+                })
+                .collect();
+
+            let labeled_poses = LabeledPoses3D {
                 group_name: group_name.clone(),
-                poses: vec![],
+                poses: triangulated,
                 time: Instant::now(),
             };
-            for group in &groups {
-                if let Some((poses_3d, matrices)) = group.to_poses_and_matrices(&camera_matrices) {
-                    let n_views = matrices.len();
-                    if n_views >= config.min_cameras {
-                        match triangulate_from_poses_and_camera_matrices_partial(
-                            &poses_3d,
-                            &matrices,
-                        ) {
-                            Ok(pose3d) => {
-                                log::info!(
-                                    "Triangulator [{}]: triangulated 1 pose ({} views), broadcasting",
-                                    group_name,
-                                    n_views
-                                );
-                                labeled_poses.poses.push(pose3d);
-                            }
-                            Err(e) => {
-                                log::warn!(
-                                    "Triangulator [{}]: triangulate failed ({} views): {}",
-                                    group_name,
-                                    n_views,
-                                    e
-                                );
-                            }
-                        }
-                    } else {
-                        log::debug!(
-                            "Triangulator [{}]: skipping group (need >= {} views, have {})",
-                            group_name,
-                            config.min_cameras,
-                            n_views
-                        );
-                    }
-                }
-            }
 
-            if !current.is_empty() {
+            if !current_smoothed.is_empty() {
                 let _ = stream_tx.send(PoseStreamUpdate {
                     labeled_poses,
                     camera_views,
@@ -680,7 +684,9 @@ pub fn group_poses_and_cameras_by_user_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grpc::proto::{CameraExtrinsics, CameraIdentifier, CameraIntrinsics, Point2D};
+    use crate::grpc::proto::{
+        CameraExtrinsics, CameraIdentifier, CameraInfo, CameraIntrinsics, Point2D, Snapshot,
+    };
     use crate::openmvg::openmvg::{create_camera_matrix, get_projection};
     use nalgebra::{Point3, Rotation3};
     use prost_types::Timestamp;
@@ -801,6 +807,159 @@ mod tests {
         let rec = Point3::new(pts.x, pts.y, pts.z);
         let err = (rec - x3d).norm();
         assert!(err < 1e-5, "reconstruction error {} for x3d {:?}", err, x3d);
+    }
+
+    /// Integration: smooth_snapshots → match_poses → triangulate yields valid 3D pose.
+    #[test]
+    fn test_smooth_then_match_then_triangulate() {
+        use crate::grpc::proto::CalibrationParameters;
+        use crate::triangulator::pose_smoothing::SmoothingConfig;
+
+        let c1 = Point3::new(0.0, 0.0, 0.0);
+        let r1 = Rotation3::identity();
+        let c2 = Point3::new(2.0, 0.0, 0.0);
+        let r2 = Rotation3::identity();
+        let p1 = create_camera_matrix(c1, r1);
+        let p2 = create_camera_matrix(c2, r2);
+
+        let x3d = Point3::new(1.0, 0.0, 5.0);
+        let pose2d_1 = get_projection(x3d, p1.clone()).unwrap();
+        let pose2d_2 = get_projection(x3d, p2.clone()).unwrap();
+
+        let point2d_1 = Point2D {
+            x: pose2d_1.x,
+            y: pose2d_1.y,
+            score: 1.0,
+        };
+        let point2d_2 = Point2D {
+            x: pose2d_2.x,
+            y: pose2d_2.y,
+            score: 1.0,
+        };
+        let pt1 = point2d_1.clone();
+        let pose_2d_1 = crate::grpc::proto::Pose2D {
+            nose: Some(point2d_1),
+            left_eye: Some(pt1.clone()),
+            right_eye: Some(pt1.clone()),
+            left_ear: Some(pt1.clone()),
+            right_ear: Some(pt1.clone()),
+            left_shoulder: Some(pt1.clone()),
+            right_shoulder: Some(pt1.clone()),
+            left_elbow: Some(pt1.clone()),
+            right_elbow: Some(pt1.clone()),
+            left_wrist: Some(pt1.clone()),
+            right_wrist: Some(pt1.clone()),
+            left_hip: Some(pt1.clone()),
+            right_hip: Some(pt1.clone()),
+            left_knee: Some(pt1.clone()),
+            right_knee: Some(pt1.clone()),
+            left_ankle: Some(pt1.clone()),
+            right_ankle: Some(pt1),
+            score: 1.0,
+        };
+        let pt2 = point2d_2.clone();
+        let pose_2d_2 = crate::grpc::proto::Pose2D {
+            nose: Some(point2d_2),
+            left_eye: Some(pt2.clone()),
+            right_eye: Some(pt2.clone()),
+            left_ear: Some(pt2.clone()),
+            right_ear: Some(pt2.clone()),
+            left_shoulder: Some(pt2.clone()),
+            right_shoulder: Some(pt2.clone()),
+            left_elbow: Some(pt2.clone()),
+            right_elbow: Some(pt2.clone()),
+            left_wrist: Some(pt2.clone()),
+            right_wrist: Some(pt2.clone()),
+            left_hip: Some(pt2.clone()),
+            right_hip: Some(pt2.clone()),
+            left_knee: Some(pt2.clone()),
+            right_knee: Some(pt2.clone()),
+            left_ankle: Some(pt2.clone()),
+            right_ankle: Some(pt2),
+            score: 1.0,
+        };
+
+        fn matrix_to_view_matrix(p: &nalgebra::Matrix3x4<f64>) -> Vec<f64> {
+            (0..4).flat_map(|c| (0..3).map(move |r| p[(r, c)])).collect()
+        }
+
+        let cal1 = CalibrationParameters {
+            intrinsics: Some(CameraIntrinsics {
+                camera_matrix: vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                distortion: vec![],
+                rms_error: 0.0,
+            }),
+            extrinsics: Some(CameraExtrinsics {
+                view_matrix: matrix_to_view_matrix(&p1),
+            }),
+        };
+        let cal2 = CalibrationParameters {
+            intrinsics: Some(CameraIntrinsics {
+                camera_matrix: vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                distortion: vec![],
+                rms_error: 0.0,
+            }),
+            extrinsics: Some(CameraExtrinsics {
+                view_matrix: matrix_to_view_matrix(&p2),
+            }),
+        };
+
+        let snap0 = Snapshot {
+            timestamp: None,
+            which_camera: Some(make_camera_identifier("g", "cam0")),
+            poses: vec![pose_2d_1],
+            image: None,
+        };
+        let snap1 = Snapshot {
+            timestamp: None,
+            which_camera: Some(make_camera_identifier("g", "cam1")),
+            poses: vec![pose_2d_2],
+            image: None,
+        };
+        let current = vec![snap0, snap1];
+
+        let mut smoothing_state = HashMap::new();
+        let config = SmoothingConfig::default();
+        let smoothed = smooth_snapshots(&current, &mut smoothing_state, &config);
+        assert_eq!(smoothed.len(), 2);
+        assert_eq!(smoothed[0].poses.len(), 1);
+        assert_eq!(smoothed[1].poses.len(), 1);
+
+        let mut cameras = HashMap::new();
+        cameras.insert(
+            "cam0".to_string(),
+            CameraState {
+                info: CameraInfo {
+                    which_camera: Some(make_camera_identifier("g", "cam0")),
+                    calibration: Some(cal1),
+                },
+                matrix: p1,
+            },
+        );
+        cameras.insert(
+            "cam1".to_string(),
+            CameraState {
+                info: CameraInfo {
+                    which_camera: Some(make_camera_identifier("g", "cam1")),
+                    calibration: Some(cal2),
+                },
+                matrix: p2,
+            },
+        );
+
+        let matrices = get_cameras_for_snapshots_impl(&smoothed, &cameras).unwrap();
+        assert_eq!(matrices.len(), 2);
+
+        let groups = match_poses(&smoothed, &matrices, POSE_MATCHING_REPROJECTION_THRESHOLD_PX);
+        assert_eq!(groups.len(), 1);
+
+        let results = triangulate_matched_groups(&groups, &matrices);
+        assert_eq!(results.len(), 1);
+        let pose3d = results[0].as_ref().unwrap();
+        let pts = pose3d.nose.as_ref().unwrap();
+        let rec = Point3::new(pts.x, pts.y, pts.z);
+        let err = (rec - x3d).norm();
+        assert!(err < 0.1, "reconstruction error {} for x3d {:?} (smoothed path)", err, x3d);
     }
 
     #[test]

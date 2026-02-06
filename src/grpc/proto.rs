@@ -134,6 +134,31 @@ impl From<(Vec<SPoint3>, f64)> for Pose3D {
     }
 }
 
+/// Build a Pose2D from 17 optional keypoints and a pose score (for partial/smoothed output).
+/// Keypoints with `None` remain unset in the output.
+pub fn pose2d_from_partial_keypoints(keypoints: [Option<Point2D>; 17], pose_score: f64) -> Pose2D {
+    Pose2D {
+        nose: keypoints[0].clone(),
+        left_eye: keypoints[1].clone(),
+        right_eye: keypoints[2].clone(),
+        left_ear: keypoints[3].clone(),
+        right_ear: keypoints[4].clone(),
+        left_shoulder: keypoints[5].clone(),
+        right_shoulder: keypoints[6].clone(),
+        left_elbow: keypoints[7].clone(),
+        right_elbow: keypoints[8].clone(),
+        left_wrist: keypoints[9].clone(),
+        right_wrist: keypoints[10].clone(),
+        left_hip: keypoints[11].clone(),
+        right_hip: keypoints[12].clone(),
+        left_knee: keypoints[13].clone(),
+        right_knee: keypoints[14].clone(),
+        left_ankle: keypoints[15].clone(),
+        right_ankle: keypoints[16].clone(),
+        score: pose_score,
+    }
+}
+
 /// Build a Pose3D from 17 optional keypoints and a score (for partial triangulation).
 /// Keypoints with `None` remain unset in the output.
 pub fn pose3d_from_partial(keypoints: [Option<SPoint3>; 17], score: f64) -> Pose3D {
