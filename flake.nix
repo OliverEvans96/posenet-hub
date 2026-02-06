@@ -59,7 +59,7 @@
         };
 
         # Shared args for both stages (env, nativeBuildInputs). Omit src and stage-specific bits.
-        commonArgs = {
+        commonArgsBase = {
           nativeBuildInputs = with pkgs; [
             cargo-edit
             rustfmt
@@ -68,13 +68,19 @@
             vrpn
             protobuf
           ];
-          CARGO_PROFILE = "dev";
           EIGEN_INCLUDE_DIR = "${myEigen}/include/eigen3";
           PROTOC = "${pkgs.protobuf}/bin/protoc";
           RUST_BACKTRACE = "1";
           OMVG = myOpenMVG;
           LIBRARY_PATH = "${myOpenMVG}/lib";
         };
+        # Dev: use -O1 for C++/C so glibc _FORTIFY_SOURCE doesn't warn (it requires -O).
+        commonArgsDev = commonArgsBase // {
+          CARGO_PROFILE = "dev";
+          CFLAGS = "-O1";
+          CXXFLAGS = "-O1";
+        };
+        commonArgsRelease = commonArgsBase // { CARGO_PROFILE = "release"; };
         myEigen = pkgs.eigen.overrideAttrs (oldAttrs: rec {
           postInstall = ''
             ln -s $out/include/eigen3/Eigen $out/include/Eigen
@@ -120,16 +126,25 @@
         };
       in rec {
         # Stage 1: build only dependencies (dummy app source). Rebuilds when Cargo.toml/Cargo.lock change.
-        cargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
+        cargoArtifactsDev = craneLib.buildDepsOnly (commonArgsDev // {
+          src = depsSrc;
+          pnameSuffix = "-deps";
+        });
+        cargoArtifactsRelease = craneLib.buildDepsOnly (commonArgsRelease // {
           src = depsSrc;
           pnameSuffix = "-deps";
         });
 
-        # Stage 2: build the package using the dependency artifacts and full source.
-        defaultPackage = craneLib.buildPackage (commonArgs // {
+        # Stage 2: build the package (dev for debugging, release for production).
+        packageDev = craneLib.buildPackage (commonArgsDev // {
           src = packageSrc;
-          cargoArtifacts = cargoArtifacts;
+          cargoArtifacts = cargoArtifactsDev;
         });
+        packageRelease = craneLib.buildPackage (commonArgsRelease // {
+          src = packageSrc;
+          cargoArtifacts = cargoArtifactsRelease;
+        });
+        defaultPackage = packageDev;
 
         # Pose data as a directory for Docker /data (avoids runAsRoot → no KVM required).
         poseDataDir = pkgs.runCommand "pose-data-dir" { } ''
@@ -137,14 +152,13 @@
           cp -r ${pose-data}/* $out/data/
         '';
 
-        packages = {
-          dockerImage = pkgs.dockerTools.buildImage {
-            name = "posenet-docker";
-            tag = "latest";
-            # Config options reference:
-            # https://github.com/moby/moby/blob/master/image/spec/v1.2.md#image-json-field-descriptions
+        # Build a Docker image: hubPackage (dev or release), optional extra paths, env.
+        # https://github.com/moby/moby/blob/master/image/spec/v1.2.md#image-json-field-descriptions
+        mkDockerImage = { name, tag ? "latest", hubPackage, extraPaths ? [ ], env ? [ "RUST_LOG=info" ], imageName ? name }:
+          pkgs.dockerTools.buildImage {
+            inherit name tag;
             config = {
-              Env = [ "RUST_LOG=debug" ];
+              inherit env;
               Cmd = [ "/bin/tini" "-g" "--" "/bin/hub-server" ];
               ExposedPorts = {
                 "50051" = { }; # gRPC
@@ -152,7 +166,7 @@
               };
             };
             copyToRoot = pkgs.buildEnv {
-              name = "image-root";
+              name = imageName;
               paths = with pkgs; [
                 tini
                 bash
@@ -160,42 +174,27 @@
                 inetutils
                 iana-etc
                 netcat-gnu
-                defaultPackage
+                hubPackage
                 poseDataDir
-              ];
+              ] ++ extraPaths;
               pathsToLink = [ "/bin" "/etc" "/lib" "/data" ];
             };
           };
 
-          # Minimal image with shell + network utils for debugging (default: hub-server; override with docker run -it ... bash).
-          dockerImageDebug = pkgs.dockerTools.buildImage {
+        packages = {
+          # Production image: release build, minimal runtime.
+          dockerImage = mkDockerImage {
+            name = "posenet-docker";
+            hubPackage = packageRelease;
+          };
+
+          # Debug image: dev build (CARGO_PROFILE=dev), RUST_LOG=debug, extra shell/network tools.
+          dockerImageDebug = mkDockerImage {
             name = "posenet-docker-debug";
-            tag = "latest";
-            config = {
-              Env = [ "RUST_LOG=debug" ];
-              Cmd = [ "/bin/tini" "-g" "--" "/bin/hub-server" ];
-              ExposedPorts = {
-                "50051" = { }; # gRPC
-                "3883" = { }; # VRPN
-              };
-            };
-            copyToRoot = pkgs.buildEnv {
-              name = "image-root-debug";
-              paths = with pkgs; [
-                tini
-                bash
-                coreutils
-                inetutils
-                iana-etc
-                netcat-gnu
-                curl
-                bind
-                iproute2
-                defaultPackage
-                poseDataDir
-              ];
-              pathsToLink = [ "/bin" "/etc" "/lib" "/data" ];
-            };
+            hubPackage = packageDev;
+            extraPaths = with pkgs; [ curl bind iproute2 ];
+            env = [ "RUST_LOG=debug" ];
+            imageName = "image-root-debug";
           };
 
           testPackage = pkgs.stdenv.mkDerivation {
