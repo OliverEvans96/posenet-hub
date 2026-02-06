@@ -86,31 +86,13 @@
         "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/fake-pose-animation.git"
       }
     },
-    "proto": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1651784811,
-        "narHash": "sha256-EtPEh9qK/utXr3b6nsIdzpncPRak/erepXHLiJi0APA=",
-        "ref": "next",
-        "rev": "db2998079c24cc742fcab72b5437a76cf2ce488f",
-        "revCount": 26,
-        "type": "git",
-        "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git"
-      },
-      "original": {
-        "ref": "next",
-        "type": "git",
-        "url": "https://gitlab.nrp-nautilus.io/librareome/posenet/posenet-proto.git"
-      }
-    },
     "root": {
       "inputs": {
         "crane": "crane",
         "fenix": "fenix",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
-        "pose-data": "pose-data",
-        "proto": "proto"
+        "pose-data": "pose-data"
       }
     },
     "rust-analyzer-src": {

@@ -6,9 +6,7 @@ type UnitResult = Result<(), Box<dyn error::Error>>;
 fn build_grpc() -> UnitResult {
     // gRPC
     println!("cargo:rerun-if-changed=proto/common.proto");
-    println!("cargo:rerun-if-changed=proto/camera.proto");
     println!("cargo:rerun-if-changed=proto/client.proto");
-    println!("cargo:rerun-if-changed=proto/hub.proto");
     println!("cargo:rerun-if-changed=proto/server.proto");
 
     dotenv().ok();
@@ -49,6 +47,7 @@ fn build_grpc() -> UnitResult {
 
 fn build_cxx() -> UnitResult {
     dotenv().ok();
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
     let eigen_include_dir =
         env::var("EIGEN_INCLUDE_DIR").unwrap_or("/usr/include/eigen3".to_owned());
 
@@ -59,6 +58,7 @@ fn build_cxx() -> UnitResult {
 
     cxx_build::bridge("src/openmvg/eigen.rs")
         .file("src/openmvg/eigen.cpp")
+        .include(&manifest_dir)
         .include(&eigen_include_dir)
         .flag_if_supported("-std=c++17")
         // Building for the wrong architecture can cause segfaults
@@ -68,6 +68,7 @@ fn build_cxx() -> UnitResult {
 
     cxx_build::bridge("src/openmvg/openmvg.rs")
         .file("src/openmvg/openmvg.cpp")
+        .include(&manifest_dir)
         .include(&eigen_include_dir)
         .flag_if_supported("-std=c++17")
         // Building for the wrong architecture can cause segfaults
@@ -94,17 +95,24 @@ fn build_cxx() -> UnitResult {
 
 fn build_vrpn() -> UnitResult {
     dotenv().ok();
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into());
+    let is_debug = env::var("PROFILE").unwrap_or_default() == "debug";
 
     println!("cargo:rerun-if-changed=include/vrpn.hpp");
     println!("cargo:rerun-if-changed=src/openmvg/vrpn.cpp");
 
-    cxx_build::bridge("src/vrpn/vrpn.rs")
+    let mut vrpn_build = cxx_build::bridge("src/vrpn/vrpn.rs");
+    vrpn_build
         .file("src/vrpn/vrpn.cpp")
+        .include(&manifest_dir)
         .flag_if_supported("-std=c++14")
         // Building for the wrong architecture can cause segfaults
         // See https://github.com/openMVG/openMVG/issues/1847
-        .flag_if_supported("-mtune=generic")
-        .compile("posenet_vr_vrpn");
+        .flag_if_supported("-mtune=generic");
+    if is_debug {
+        vrpn_build.flag("-U_FORTIFY_SOURCE");
+    }
+    vrpn_build.compile("posenet_vr_vrpn");
 
     println!("cargo:rustc-link-lib=vrpn");
 
