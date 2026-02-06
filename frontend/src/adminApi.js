@@ -66,4 +66,7 @@ export const AdminMethods = {
   Calibrate: 'Calibrate',
   Ping: 'Ping',
   UpdateCameras: 'UpdateCameras',
+  StartRecording: 'StartRecording',
+  StopRecording: 'StopRecording',
+  GetRecordingStatus: 'GetRecordingStatus',
 };

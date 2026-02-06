@@ -92,6 +92,11 @@ function getVideoBaseUrl() {
   return `${proto}//${host}:${videoPort}`;
 }
 
+/** URL to download the last completed recording (same server as MJPEG). */
+function getRecordingDownloadUrl() {
+  return getVideoBaseUrl() + '/api/recordings/download';
+}
+
 /** If set, only show pose stream for this group; empty = show all. */
 let selectedGroupFilter = '';
 /** Set once from first pose message when no group selected, so camera MJPEG URLs work. */
@@ -487,6 +492,52 @@ bindAdmin('btn-stream-stop', AdminMethods.StreamControl, () => ({
   command: { stop: {} },
 }), OUT_CONTROL_ID);
 
+// Recording: Start / Stop with status and download link on completion
+const btnRecordingStart = document.getElementById('btn-recording-start');
+const btnRecordingStop = document.getElementById('btn-recording-stop');
+const recordingStatusEl = document.getElementById('recording-status');
+const recordingDownloadEl = document.getElementById('recording-download');
+if (btnRecordingStart && btnRecordingStop) {
+  btnRecordingStart.addEventListener('click', () => {
+    btnRecordingStart.disabled = true;
+    const group = getSelectedGroup();
+    const params = group ? { group_name: group } : {};
+    adminApi.request(AdminMethods.StartRecording, params)
+      .then((result) => {
+        if (recordingStatusEl) recordingStatusEl.textContent = 'Recording… ' + (result?.path || '');
+        btnRecordingStop.disabled = false;
+        if (recordingDownloadEl) recordingDownloadEl.innerHTML = '';
+      })
+      .catch((err) => {
+        setOutput(OUT_CONTROL_ID, err.message || String(err), true);
+        btnRecordingStart.disabled = false;
+      });
+  });
+  btnRecordingStop.addEventListener('click', () => {
+    btnRecordingStop.disabled = true;
+    adminApi.request(AdminMethods.StopRecording, {})
+      .then((result) => {
+        if (recordingStatusEl) recordingStatusEl.textContent = `Saved: ${result?.frame_count ?? 0} frames`;
+        btnRecordingStart.disabled = false;
+        const filename = result?.filename;
+        if (recordingDownloadEl && filename) {
+          const a = document.createElement('a');
+          a.href = getRecordingDownloadUrl();
+          a.download = filename;
+          a.textContent = 'Download recording';
+          a.className = 'control-download-link';
+          recordingDownloadEl.innerHTML = '';
+          recordingDownloadEl.appendChild(a);
+        }
+        setOutput(OUT_CONTROL_ID, JSON.stringify(result, null, 2));
+      })
+      .catch((err) => {
+        setOutput(OUT_CONTROL_ID, err.message || String(err), true);
+        btnRecordingStop.disabled = false;
+      });
+  });
+}
+
 bindAdmin('btn-take-snapshots', AdminMethods.TakeSnapshots, () => ({
   group_name: getSelectedGroup(),
   camera_name: getSelectedCamera(),
@@ -526,14 +577,31 @@ setInterval(() => {
 client.connect();
 updateConnectionStatus();
 
-// Refresh groups when connected
+// Refresh groups and recording status when connected
 const checkConnected = setInterval(() => {
   if (client.getState() === 'open') {
     refreshGroups();
+    refreshRecordingStatus();
     clearInterval(checkConnected);
   }
 }, 500);
 setTimeout(() => clearInterval(checkConnected), 30000);
+
+function refreshRecordingStatus() {
+  adminApi.request(AdminMethods.GetRecordingStatus, {})
+    .then((result) => {
+      if (btnRecordingStart && btnRecordingStop) {
+        const isRecording = result?.is_recording === true;
+        btnRecordingStart.disabled = isRecording;
+        btnRecordingStop.disabled = !isRecording;
+        if (recordingStatusEl) {
+          recordingStatusEl.textContent = isRecording ? 'Recording…' : '';
+        }
+        if (!isRecording && recordingDownloadEl) recordingDownloadEl.innerHTML = '';
+      }
+    })
+    .catch(() => {});
+}
 
 function animate() {
   requestAnimationFrame(animate);

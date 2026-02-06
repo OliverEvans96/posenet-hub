@@ -163,6 +163,21 @@ body {
   cursor: not-allowed;
 }
 
+.recording-status {
+  font-size: 0.8125rem;
+  color: var(--fg-muted, #8b949e);
+  margin-top: 0.25rem;
+}
+
+.recording-download {
+  margin-top: 0.25rem;
+}
+
+.control-download-link {
+  font-size: 0.8125rem;
+  color: var(--link-color, #58a6ff);
+}
+
 .control-output {
   margin: 0;
   margin-top: 0.5rem;

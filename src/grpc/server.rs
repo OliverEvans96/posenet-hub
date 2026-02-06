@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 use crate::errors::{ConfigError, HubError, InvalidInput, MissingField};
 use crate::openmvg::openmvg::ceres_bundle_adjustment;
+use crate::recording::RecordingState;
 
 use super::proto::hub_service_server::{HubService, HubServiceServer};
 use super::proto::*;
@@ -25,6 +26,8 @@ use super::proto::*;
 pub struct HubServer {
     cameras_tx: mpsc::UnboundedSender<CameraInfo>,
     snapshots_tx: mpsc::UnboundedSender<Snapshot>,
+    /// Optional recording state; when set, snapshots are teed to the recording file.
+    recording_state: Option<Arc<RecordingState>>,
     /// snapshot request stream channel senders,
     /// indexed by group name, then camera name
     ///
@@ -57,15 +60,18 @@ pub struct HubServer {
 
 impl HubServer {
     /// Create a new HubServer with empty session/cache state. Caller keeps cameras_tx/snapshots_tx.
+    /// If recording_state is Some, incoming streamed snapshots are teed to the recording file when recording is active.
     pub fn new(
         cameras_tx: mpsc::UnboundedSender<CameraInfo>,
         snapshots_tx: mpsc::UnboundedSender<Snapshot>,
+        recording_state: Option<Arc<RecordingState>>,
     ) -> Self {
         let stream_cache = Arc::new(RwLock::new(HashMap::new()));
         let stream_state = Arc::new(RwLock::new(HashMap::new()));
         Self {
             cameras_tx,
             snapshots_tx,
+            recording_state,
             session_tokens: RwLock::new(HashMap::new()),
             stream_cache,
             stream_state,
@@ -515,11 +521,13 @@ impl HubService for HubServer {
                 let stream_cache = self.stream_cache.clone();
                 let snapshots_tx = self.snapshots_tx.clone();
                 let stream_state = self.stream_state.clone();
+                let recording_state = self.recording_state.clone();
                 for (_camera, stream) in execution_results {
                     let group_name = group_name.clone();
                     let stream_cache = stream_cache.clone();
                     let snapshots_tx = snapshots_tx.clone();
                     let stream_state = stream_state.clone();
+                    let recording_state = recording_state.clone();
                     tokio::spawn(async move {
                         pin_mut!(stream);
                         let mut frames_cached: u64 = 0;
@@ -552,6 +560,9 @@ impl HubService for HubServer {
                                     }
                                     let snapshot_for_tx = Arc::try_unwrap(arc)
                                         .unwrap_or_else(|a| (*a).clone());
+                                    if let Some(ref rec) = recording_state {
+                                        rec.tee_snapshot(&snapshot_for_tx).await;
+                                    }
                                     let _ = snapshots_tx.send(snapshot_for_tx);
                                 }
                             }
@@ -1666,7 +1677,7 @@ mod tests {
             let _ = snapshots_rx;
             std::future::pending::<()>().await
         });
-        let hub = Arc::new(crate::grpc::server::HubServer::new(cameras_tx, snapshots_tx));
+        let hub = Arc::new(crate::grpc::server::HubServer::new(cameras_tx, snapshots_tx, None));
         let config = crate::grpc::server::GrpcConfig::new("127.0.0.1", port).expect("GrpcConfig");
         let grpc_server = crate::grpc::server::GrpcServer::new(config, hub);
         tokio::spawn(async move {

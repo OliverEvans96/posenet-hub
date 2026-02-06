@@ -22,6 +22,7 @@ use crate::grpc::proto::{
 };
 use crate::grpc::proto::hub_service_server::HubService;
 use crate::grpc::server::HubServer;
+use crate::recording::{RecordingError, RecordingState};
 use crate::triangulator::{CameraModel, CameraView, PoseStreamUpdate};
 
 /// JSON-serializable 3D point for WebSocket clients.
@@ -228,7 +229,11 @@ fn stream_update_to_message(update: &PoseStreamUpdate) -> PoseStreamMessage {
 }
 
 /// Handle one admin request and return JSON response string (result or error).
-async fn handle_ws_admin(hub: &HubServer, req: WsAdminRequest) -> String {
+async fn handle_ws_admin(
+    hub: &HubServer,
+    recording_state: Option<&Arc<RecordingState>>,
+    req: WsAdminRequest,
+) -> String {
     let id = req.id;
     let result = match req.method.as_str() {
         "ListGroups" => {
@@ -589,6 +594,7 @@ pub struct WebSocketServer {
     config: WebSocketConfig,
     stream_rx: broadcast::Receiver<PoseStreamUpdate>,
     admin: Option<Arc<HubServer>>,
+    recording_state: Option<Arc<RecordingState>>,
 }
 
 impl WebSocketServer {
@@ -596,11 +602,13 @@ impl WebSocketServer {
         config: WebSocketConfig,
         stream_rx: broadcast::Receiver<PoseStreamUpdate>,
         admin: Option<Arc<HubServer>>,
+        recording_state: Option<Arc<RecordingState>>,
     ) -> Self {
         Self {
             config,
             stream_rx,
             admin,
+            recording_state,
         }
     }
 
@@ -626,6 +634,7 @@ impl WebSocketServer {
         let clients: Arc<RwLock<Vec<Client>>> = Arc::new(RwLock::new(Vec::new()));
         let cameras_cache: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
         let admin = self.admin.clone();
+        let recording_state = self.recording_state.clone();
 
         let clients_for_accept = clients.clone();
         let cameras_cache_for_accept = cameras_cache.clone();
@@ -641,6 +650,7 @@ impl WebSocketServer {
                 let clients_ref = clients_for_accept.clone();
                 let cameras_cache_ref = cameras_cache_for_accept.clone();
                 let admin_for_conn = admin.clone();
+                let recording_for_conn = recording_state.clone();
                 tokio::spawn(async move {
                     if let Ok(ws_stream) =
                         tokio_tungstenite::accept_async(stream).await
@@ -672,8 +682,12 @@ impl WebSocketServer {
                             };
                             if let Ok(admin_req) = serde_json::from_str::<WsAdminRequest>(&text) {
                                 if let Some(ref hub) = admin_for_conn {
-                                    let response =
-                                        handle_ws_admin(hub.as_ref(), admin_req).await;
+                                    let response = handle_ws_admin(
+                                        hub.as_ref(),
+                                        recording_for_conn.as_ref(),
+                                        admin_req,
+                                    )
+                                    .await;
                                     let _ = client_tx.send(Message::Text(response));
                                 }
                             }

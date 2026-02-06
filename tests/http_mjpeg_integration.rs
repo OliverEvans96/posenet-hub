@@ -17,13 +17,13 @@ use posenet_vr_hub::http_server::{HttpConfig, HttpServer};
 async fn test_mjpeg_endpoint_returns_200_and_multipart() {
     let (cameras_tx, _cameras_rx) = mpsc::unbounded_channel::<CameraInfo>();
     let (snapshots_tx, _snapshots_rx) = mpsc::unbounded_channel::<Snapshot>();
-    let hub = Arc::new(HubServer::new(cameras_tx, snapshots_tx));
+    let hub = Arc::new(HubServer::new(cameras_tx, snapshots_tx, None));
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
 
     let config = HttpConfig::new("127.0.0.1", port).unwrap();
-    let server = HttpServer::new(config, hub);
+    let server = HttpServer::new(config, hub, None);
 
     let server_handle = tokio::spawn(async move {
         let _ = server.run_with_listener(listener).await;

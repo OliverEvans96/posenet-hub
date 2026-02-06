@@ -47,7 +47,7 @@ async fn test_websocket_client_receives_pose_message() {
     let port = listener.local_addr().unwrap().port();
 
     let config = WebSocketConfig::new("127.0.0.1", port).unwrap();
-    let server = WebSocketServer::new(config, rx, None);
+    let server = WebSocketServer::new(config, rx, None, None);
 
     let server_handle = tokio::spawn(async move {
         let _ = server.run_with_listener(listener).await;

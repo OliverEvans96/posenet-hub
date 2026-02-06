@@ -14,6 +14,7 @@ use tokio::time::interval;
 
 use crate::grpc::proto::Image;
 use crate::grpc::server::HubServer;
+use crate::recording::RecordingState;
 
 /// Default MJPEG stream frame rate (frames per second).
 const MJPEG_FPS: u32 = 10;
@@ -75,6 +76,8 @@ fn mjpeg_part(jpeg: &[u8]) -> Vec<u8> {
 
 /// Path prefix for camera stream API.
 pub const CAMERA_STREAM_PATH_PREFIX: &str = "/api/camera/";
+/// Path for downloading the last completed recording (no listing).
+pub const RECORDING_DOWNLOAD_PATH: &str = "/api/recordings/download";
 
 /// Parses path like "/api/camera/{group}/{name}/stream" into (group, name).
 /// Group and name are URL-decoded. Returns None if path does not match.
@@ -92,9 +95,11 @@ pub fn parse_camera_stream_path(path: &str) -> Option<(String, String)> {
     Some((group, name))
 }
 
-/// Service handler: GET /api/camera/{group}/{name}/stream returns MJPEG stream.
+/// Service handler: GET /api/camera/{group}/{name}/stream returns MJPEG stream;
+/// GET /api/recordings/download returns the last completed recording file.
 async fn handle_request(
     hub: Arc<HubServer>,
+    recording_state: Option<Arc<RecordingState>>,
     req: Request<Body>,
 ) -> Result<Response<Body>, Infallible> {
     if req.method() != hyper::Method::GET {
@@ -104,6 +109,45 @@ async fn handle_request(
             .unwrap());
     }
     let path = req.uri().path();
+    if path == RECORDING_DOWNLOAD_PATH {
+        let Some(ref rec) = recording_state else {
+            return Ok(Response::builder()
+                .status(404)
+                .body(Body::from("Not Found"))
+                .unwrap());
+        };
+        let filename = rec.last_completed_filename().await;
+        let Some(filename) = filename else {
+            return Ok(Response::builder()
+                .status(404)
+                .body(Body::from("No recording available"))
+                .unwrap());
+        };
+        let file_path = rec.path_for_filename(&filename);
+        if file_path.file_name().and_then(|s| s.to_str()) != Some(filename.as_str()) {
+            return Ok(Response::builder()
+                .status(400)
+                .body(Body::from("Invalid filename"))
+                .unwrap());
+        }
+        match tokio::fs::read(&file_path).await {
+            Ok(data) => {
+                let disposition = format!("attachment; filename=\"{}\"", filename);
+                return Ok(Response::builder()
+                    .status(200)
+                    .header(hyper::header::CONTENT_TYPE, "application/octet-stream")
+                    .header(hyper::header::CONTENT_DISPOSITION, disposition)
+                    .body(Body::from(data))
+                    .unwrap());
+            }
+            Err(_) => {
+                return Ok(Response::builder()
+                    .status(404)
+                    .body(Body::from("Not Found"))
+                    .unwrap());
+            }
+        }
+    }
     let Some((group, name)) = parse_camera_stream_path(path) else {
         return Ok(Response::builder()
             .status(404)
@@ -187,15 +231,24 @@ impl Default for HttpConfig {
     }
 }
 
-/// HTTP server that serves MJPEG camera streams.
+/// HTTP server that serves MJPEG camera streams and recording download.
 pub struct HttpServer {
     config: HttpConfig,
     hub: Arc<HubServer>,
+    recording_state: Option<Arc<RecordingState>>,
 }
 
 impl HttpServer {
-    pub fn new(config: HttpConfig, hub: Arc<HubServer>) -> Self {
-        Self { config, hub }
+    pub fn new(
+        config: HttpConfig,
+        hub: Arc<HubServer>,
+        recording_state: Option<Arc<RecordingState>>,
+    ) -> Self {
+        Self {
+            config,
+            hub,
+            recording_state,
+        }
     }
 
     /// Run the server with the given listener (for tests; use port 0 for a random port).
@@ -205,13 +258,16 @@ impl HttpServer {
             listener.local_addr()?
         );
         let hub = self.hub;
+        let recording_state = self.recording_state;
         loop {
             let (stream, _) = listener.accept().await?;
             let hub = hub.clone();
+            let recording_state = recording_state.clone();
             tokio::spawn(async move {
                 let service = service_fn(move |req| {
                     let hub = hub.clone();
-                    async move { handle_request(hub, req).await }
+                    let recording_state = recording_state.clone();
+                    async move { handle_request(hub, recording_state, req).await }
                 });
                 if let Err(e) = Http::new().serve_connection(stream, service).await {
                     log::debug!("HTTP connection error: {}", e);

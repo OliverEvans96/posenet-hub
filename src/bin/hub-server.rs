@@ -11,6 +11,7 @@ use posenet_vr_hub::grpc::proto::CameraInfo;
 use posenet_vr_hub::grpc::proto::Snapshot;
 use posenet_vr_hub::grpc::server::{GrpcConfig, GrpcServer, HubServer};
 use posenet_vr_hub::http_server::{HttpConfig, HttpServer};
+use posenet_vr_hub::recording::RecordingState;
 use posenet_vr_hub::triangulator::{LabeledPoses3D, PoseStreamUpdate, TriangulatorConfig};
 use posenet_vr_hub::vrpn::server::{VrpnConfig, VrpnServer};
 use posenet_vr_hub::websocket::{WebSocketConfig, WebSocketServer};
@@ -47,7 +48,15 @@ async fn main() -> anyhow::Result<()> {
         stream_bcast_tx.clone(),
     );
 
-    let hub = Arc::new(HubServer::new(cameras_tx, snapshots_tx));
+    let recording_dir = std::env::var("POSENET_RECORDING_DIR")
+        .unwrap_or_else(|_| "recordings".to_string())
+        .into();
+    let recording_state = Arc::new(RecordingState::new(recording_dir));
+    let hub = Arc::new(HubServer::new(
+        cameras_tx,
+        snapshots_tx,
+        Some(recording_state.clone()),
+    ));
     let grpc_config = GrpcConfig::default();
     let grpc_server = GrpcServer::new(grpc_config, hub.clone());
 
@@ -97,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
             WebSocketConfig::default(),
             stream_bcast_tx.subscribe(),
             Some(hub.clone()),
+            Some(recording_state.clone()),
         );
         Box::pin(async move {
             match ws_server.run().await {
@@ -110,7 +120,11 @@ async fn main() -> anyhow::Result<()> {
 
     // HTTP MJPEG camera streams: always run so camera feeds are available (e.g. for frontend or other clients).
     let run_http: Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> = {
-        let http_server = HttpServer::new(HttpConfig::default(), hub.clone());
+        let http_server = HttpServer::new(
+            HttpConfig::default(),
+            hub.clone(),
+            Some(recording_state.clone()),
+        );
         Box::pin(async move {
             match http_server.run().await {
                 Ok(()) => Ok(()),

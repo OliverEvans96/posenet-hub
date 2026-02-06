@@ -67,6 +67,15 @@
               </div>
             </div>
             <div class="control-section">
+              <h3 class="control-section-title">Recording</h3>
+              <div class="control-actions">
+                <button type="button" id="btn-recording-start" class="control-btn">Start recording</button>
+                <button type="button" id="btn-recording-stop" class="control-btn" disabled>Stop recording</button>
+              </div>
+              <div id="recording-status" class="recording-status" aria-live="polite"></div>
+              <div id="recording-download" class="recording-download"></div>
+            </div>
+            <div class="control-section">
               <h3 class="control-section-title">Snapshots</h3>
               <div class="control-actions">
                 <button type="button" id="btn-take-snapshots" class="control-btn">Take snapshots</button>
