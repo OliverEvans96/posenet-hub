@@ -1,14 +1,17 @@
-
 stages:
   - build
-  - test
-  - doc
-  - deploy
 
+# Build production Docker image from flake.nix and push to GitLab registry.
+# Tests run as part of the Nix build (crane buildPackage).
 nix-build-docker-image:
   stage: build
   image: nixos/nix:2.8.0
+  except:
+    refs:
+      - cpp-deps
+      - rust-deps
   variables:
+    GIT_SUBMODULE_STRATEGY: recursive
     # NOTE: CACHIX_AUTH_TOKEN is set as a per-project Gitlab CI Variable
     CACHIX_CACHE_NAME: nautilus-posenet
   before_script:
@@ -21,103 +24,9 @@ nix-build-docker-image:
     # Login to Gitlab image registry
     - skopeo login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    # Build image (and push artifacts to cachix)
+    # Build image (and push artifacts to cachix). Flake uses repo + submodules.
     - cachix watch-exec $CACHIX_CACHE_NAME nix -- build '.#dockerImage' --print-build-logs
-    # Push image to registry
-    - skopeo copy --insecure-policy docker-archive:result "docker://$CI_REGISTRY_IMAGE/nix-docker:$CI_COMMIT_SHORT_SHA"
-    # Alias image with `latest` tag (without re-pushing all the data)
-    - skopeo copy --insecure-policy "docker://$CI_REGISTRY_IMAGE/nix-docker:$CI_COMMIT_SHORT_SHA" "docker://$CI_REGISTRY_IMAGE/nix-docker:latest"
-
-build-cpp-deps:
-  stage: build
-  needs: []
-  dependencies: []
-  only:
-    refs:
-    - cpp-deps
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
-      # Tag images with git commit SHAs
-    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/cpp-deps.Dockerfile --destination $CI_REGISTRY_IMAGE/cpp-deps:latest --destination $CI_REGISTRY_IMAGE/cpp-deps:$CI_COMMIT_SHORT_SHA --build-arg CPP_DEPS_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
-
-build-rust-deps:
-  stage: build
-  needs: []
-  dependencies: []
-  only:
-    refs:
-    - rust-deps
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
-      # Tag images with git commit SHAs
-    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/rust-deps.Dockerfile --destination $CI_REGISTRY_IMAGE/rust-deps:latest --destination $CI_REGISTRY_IMAGE/rust-deps:$CI_COMMIT_SHORT_SHA --build-arg RUST_DEPS_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
-
-build-image:
-  stage: build
-  needs: []
-  dependencies: []
-  except:
-    refs:
-    - cpp-deps
-    - rust-deps
-  variables:
-    GIT_SUBMODULE_STRATEGY: recursive
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
-      # Tag images with git commit SHAs
-    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/main.Dockerfile --destination $CI_REGISTRY_IMAGE:latest --destination $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA --build-arg SRC_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
-
-test:
-  stage: test
-  needs: []
-  dependencies: []
-  image:
-    name: $CI_REGISTRY_IMAGE/rust-deps
-  variables:
-    GIT_SUBMODULE_STRATEGY: recursive
-  script:
-    - rustc --version
-    - cargo --version
-    - cargo test --release --verbose
-
-build-docs:
-  stage: build
-  needs: []
-  dependencies: []
-  only:
-    - main
-  variables:
-    GIT_SUBMODULE_STRATEGY: recursive
-  image:
-    name: gcr.io/kaniko-project/executor:debug
-    entrypoint: [""]
-  script:
-    - echo "{\"auths\":{\"$CI_REGISTRY\":{\"username\":\"$CI_REGISTRY_USER\",\"password\":\"$CI_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
-      # Tag images with git commit SHAs
-    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile build/docs.Dockerfile --destination $CI_REGISTRY_IMAGE/docs:latest --destination $CI_REGISTRY_IMAGE/docs:$CI_COMMIT_SHORT_SHA --build-arg SRC_COMMIT=$CI_COMMIT_SHORT_SHA -v warn
-
-deploy-k8s:
-  image: roffe/kubectl
-  stage: deploy
-  only:
-    refs:
-      - main
-  # Use appropriate service account with deploy permissions
-  # via Gitlab k8s cluster integration on posenet group
-  # See https://gitlab.nrp-nautilus.io/librareome/posenet/k8s
-  # for an overview of how this works
-  environment:
-    name: posenet
-    kubernetes:
-      namespace: posenet
-  script:
-    - cat k8s/*.yaml | envsubst '$CI_COMMIT_REF_NAME $CI_COMMIT_SHORT_SHA' | kubectl apply -f -
+    # result is a symlink; skopeo needs the real path to the tarball
+    - IMAGE_PATH=$(realpath result)
+    - skopeo copy --insecure-policy "docker-archive:$IMAGE_PATH" "docker://$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - skopeo copy --insecure-policy "docker://$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "docker://$CI_REGISTRY_IMAGE:latest"
