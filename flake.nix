@@ -144,7 +144,8 @@
             # Config options reference:
             # https://github.com/moby/moby/blob/master/image/spec/v1.2.md#image-json-field-descriptions
             config = {
-              Cmd = [ "/bin/hub-server" ];
+              Env = [ "RUST_LOG=debug" ];
+              Cmd = [ "/bin/tini" "-g" "--" "/bin/hub-server" ];
               ExposedPorts = {
                 "50051" = { }; # gRPC
                 "3883" = { }; # VRPN
@@ -153,6 +154,7 @@
             copyToRoot = pkgs.buildEnv {
               name = "image-root";
               paths = with pkgs; [
+                tini
                 bash
                 coreutils
                 inetutils
@@ -170,7 +172,8 @@
             name = "posenet-docker-debug";
             tag = "latest";
             config = {
-              Cmd = [ "/bin/hub-server" ];
+              Env = [ "RUST_LOG=debug" ];
+              Cmd = [ "/bin/tini" "-g" "--" "/bin/hub-server" ];
               ExposedPorts = {
                 "50051" = { }; # gRPC
                 "3883" = { }; # VRPN
@@ -179,6 +182,7 @@
             copyToRoot = pkgs.buildEnv {
               name = "image-root-debug";
               paths = with pkgs; [
+                tini
                 bash
                 coreutils
                 inetutils
