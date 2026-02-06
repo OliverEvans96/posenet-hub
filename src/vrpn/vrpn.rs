@@ -7,8 +7,8 @@ use crate::grpc::proto::Pose3D;
 #[cxx::bridge]
 pub mod ffi {
     unsafe extern "C++" {
-        include!("posenet-vr-hub/include/vrpn_forward.hpp");
-        include!("posenet-vr-hub/include/vrpn.hpp");
+        include!("include/vrpn_forward.hpp");
+        include!("include/vrpn.hpp");
 
         type PoseNetVrpnContainer;
 

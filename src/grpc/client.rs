@@ -148,12 +148,15 @@ pub fn build_stream_control_stop_request(group_name: String) -> StreamControlReq
     }
 }
 
-/// Build CalibrationRequest.
+/// Build CalibrationRequest. Checkerboard params optional; defaults (5, 7, 0.0285) used by camera if not set.
 pub fn build_calibration_request(
     group_name: String,
     camera_name: Option<String>,
-    do_extrinsic: bool,
     do_intrinsic: bool,
+    do_extrinsic: bool,
+    pattern_cols: Option<i32>,
+    pattern_rows: Option<i32>,
+    square_size_m: Option<f64>,
 ) -> CalibrationRequest {
     CalibrationRequest {
         which_camera: Some(CameraIdentifier {
@@ -161,8 +164,11 @@ pub fn build_calibration_request(
             camera_name: camera_name.unwrap_or_default(),
         }),
         command: Some(CalibrateCommand {
-            do_extrinsic,
             do_intrinsic,
+            do_extrinsic,
+            pattern_cols: pattern_cols.unwrap_or(5),
+            pattern_rows: pattern_rows.unwrap_or(7),
+            square_size_m: square_size_m.unwrap_or(0.0285),
         }),
     }
 }
@@ -546,8 +552,11 @@ mod tests {
         let req = build_calibration_request(
             "cal_group".to_string(),
             Some("cam1".to_string()),
-            true,
             false,
+            true,
+            None,
+            None,
+            None,
         );
         assert!(req.which_camera.is_some());
         let id = req.which_camera.as_ref().unwrap();
@@ -561,9 +570,28 @@ mod tests {
 
     #[test]
     fn test_build_calibration_request_group_only() {
-        let req = build_calibration_request("g".to_string(), None, false, true);
+        let req = build_calibration_request("g".to_string(), None, true, false, None, None, None);
         assert_eq!(req.which_camera.as_ref().unwrap().camera_name, "");
         assert!(req.command.as_ref().unwrap().do_intrinsic);
+    }
+
+    #[test]
+    fn test_build_calibration_request_checkerboard_params() {
+        let req = build_calibration_request(
+            "g".to_string(),
+            None,
+            true,
+            true,
+            Some(6),
+            Some(8),
+            Some(0.04),
+        );
+        let cmd = req.command.as_ref().unwrap();
+        assert_eq!(cmd.pattern_cols, 6);
+        assert_eq!(cmd.pattern_rows, 8);
+        assert!((cmd.square_size_m - 0.04).abs() < 1e-9);
+        assert!(cmd.do_intrinsic);
+        assert!(cmd.do_extrinsic);
     }
 
     #[test]

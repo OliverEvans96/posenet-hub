@@ -699,27 +699,84 @@ impl HubService for HubServer {
                 which_camera: Some(which_camera),
                 command: Some(calibrate_command),
             } => {
-                let control_command = camera_control_command::Command::Calibrate(calibrate_command);
+                let do_extrinsic = calibrate_command.do_extrinsic;
+                let control_command =
+                    camera_control_command::Command::Calibrate(calibrate_command);
                 let execution_futures = self
-                    .execute_command(which_camera, control_command)
+                    .execute_command(which_camera.clone(), control_command)
                     .await
                     .map_err(|e| Status::internal(e.to_string()))?;
-                let execution_results = join_all(execution_futures).await;
+                let mut execution_results = join_all(execution_futures).await;
+                let num_cameras = execution_results.len();
 
+                // Phase 1: read first message from each camera (intrinsics done)
                 let mut calibration_states = Vec::new();
-                for (camera, stream) in execution_results {
-                    // https://stackoverflow.com/a/64007300/4228052
-                    pin_mut!(stream);
-
-                    // TODO: Is this inefficient to await in a loop?
-                    // Couldn't get it working w/ join_all
+                for (camera, stream) in execution_results.iter_mut() {
                     let maybe_response = stream.next().await;
-                    // TODO: Don't silently ignore errors.
-                    // Should tell caller which cameras failed.
                     if let Ok(calibration_state) =
-                        construct_calibration_state(camera, maybe_response)
+                        construct_calibration_state(camera.clone(), maybe_response)
                     {
                         calibration_states.push(calibration_state);
+                    }
+                }
+
+                // Phase 2: if extrinsic requested, trigger sync TakeSnapshot then read second message
+                if do_extrinsic && num_cameras > 0 {
+                    let take_snapshot_command =
+                        camera_control_command::Command::TakeSnapshot(TakeSnapshotCommand {
+                            params: Some(SnapshotParameters {
+                                common: Some(SnapshotPayloadParameters {
+                                    with_pose: false,
+                                    with_image: true,
+                                }),
+                            }),
+                        });
+                    let _ = self
+                        .execute_command(which_camera.clone(), take_snapshot_command)
+                        .await;
+
+                    calibration_states.clear();
+                    for (camera, stream) in execution_results.iter_mut() {
+                        let maybe_response = stream.next().await;
+                        if let Ok(calibration_state) =
+                            construct_calibration_state(camera.clone(), maybe_response)
+                        {
+                            calibration_states.push(calibration_state);
+                        }
+                    }
+
+                    // Only merge into camera_info if all cameras participated successfully
+                    if calibration_states.len() == num_cameras {
+                        let mut camera_info_guard = self.camera_info.write();
+                        for state in &calibration_states {
+                            if let (Some(id), Some(cal)) =
+                                (state.which_camera.as_ref(), state.calibration.as_ref())
+                            {
+                                camera_info_guard.insert(
+                                    id.clone(),
+                                    CameraInfo {
+                                        which_camera: Some(id.clone()),
+                                        calibration: Some(cal.clone()),
+                                    },
+                                );
+                            }
+                        }
+                    }
+                } else if !calibration_states.is_empty() {
+                    // Intrinsics-only: merge first (and only) response into camera_info
+                    let mut camera_info_guard = self.camera_info.write();
+                    for state in &calibration_states {
+                        if let (Some(id), Some(cal)) =
+                            (state.which_camera.as_ref(), state.calibration.as_ref())
+                        {
+                            camera_info_guard.insert(
+                                id.clone(),
+                                CameraInfo {
+                                    which_camera: Some(id.clone()),
+                                    calibration: Some(cal.clone()),
+                                },
+                            );
+                        }
                     }
                 }
 
@@ -911,7 +968,7 @@ impl HubService for HubServer {
             .map(|poses| {
                 triangulator::triangulate_from_poses_and_camera_matrices(poses, &camera_matrices)
             })
-            .collect::<Result<Vec<_>, HubError>>()
+            .collect::<Result<Vec<Pose3D>, HubError>>()
             .map_err(|e| Status::invalid_argument(e.to_string()))?;
 
         let response = TriangulationResponse { poses: poses3d };
@@ -1459,7 +1516,8 @@ impl HubServer {
                     // that will contain the actual responses.
                     // We should only be receiving Data after the first Begin message,
                     // but drop Begins silently if they are received for some reason.
-                    let inner_stream = tail_box.filter_map(get_inner_command_response);
+                    // Box::pin so the stream is Unpin and .next().await works in the calibrate handler.
+                    let inner_stream = Box::pin(tail_box.filter_map(get_inner_command_response));
                     (camera, inner_stream)
                 })
             })
@@ -1847,8 +1905,11 @@ mod tests {
             let req = grpc_client::build_calibration_request(
                 "unit_cal_group".to_string(),
                 None,
-                true,
                 false,
+                true,
+                None,
+                None,
+                None,
             );
             let resp = grpc_client::calibrate(&mut client, req).await.expect("calibrate");
             // No cameras connected in this group -> empty.
@@ -1856,6 +1917,68 @@ mod tests {
         })
         .await
         .expect("test timeout");
+    }
+
+    #[test]
+    fn test_construct_calibration_state_success() {
+        use crate::grpc::proto::command_response;
+        use crate::grpc::proto::{CalibrationParameters, CommandResponse};
+        use crate::grpc::proto::{CameraExtrinsics, CameraIntrinsics, CameraUniqueIdentifier};
+        use super::construct_calibration_state;
+
+        let camera = CameraUniqueIdentifier {
+            group_name: "g".to_string(),
+            camera_name: "c".to_string(),
+        };
+        let params = CalibrationParameters {
+            intrinsics: Some(CameraIntrinsics {
+                camera_matrix: vec![1.0; 9],
+                distortion: vec![0.0; 5],
+                rms_error: 0.0,
+            }),
+            extrinsics: Some(CameraExtrinsics {
+                view_matrix: vec![1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+            }),
+        };
+        let response = CommandResponse {
+            response: Some(command_response::Response::Calibration(params.clone())),
+        };
+        let out = construct_calibration_state(camera, Some(response)).expect("ok");
+        assert_eq!(out.which_camera.as_ref().unwrap().group_name, "g");
+        assert_eq!(out.which_camera.as_ref().unwrap().camera_name, "c");
+        assert!(out.calibration.is_some());
+        assert_eq!(out.calibration.as_ref().unwrap().intrinsics.as_ref().unwrap().camera_matrix.len(), 9);
+    }
+
+    #[test]
+    fn test_construct_calibration_state_none_response() {
+        use crate::grpc::proto::CameraUniqueIdentifier;
+        use super::construct_calibration_state;
+
+        let camera = CameraUniqueIdentifier {
+            group_name: "g".to_string(),
+            camera_name: "c".to_string(),
+        };
+        let out = construct_calibration_state(camera, None);
+        assert!(out.is_err());
+    }
+
+    #[test]
+    fn test_construct_calibration_state_wrong_response_type() {
+        use crate::grpc::proto::command_response;
+        use crate::grpc::proto::{CommandResponse, Snapshot};
+        use crate::grpc::proto::CameraUniqueIdentifier;
+        use super::construct_calibration_state;
+
+        let camera = CameraUniqueIdentifier {
+            group_name: "g".to_string(),
+            camera_name: "c".to_string(),
+        };
+        let response = CommandResponse {
+            response: Some(command_response::Response::Snapshot(Snapshot::default())),
+        };
+        let out = construct_calibration_state(camera, Some(response));
+        assert!(out.is_err());
     }
 
     #[tokio::test]

@@ -288,8 +288,11 @@ async fn grpc_calibrate_returns_response() {
                 camera_name: String::new(),
             }),
             command: Some(CalibrateCommand {
-                do_extrinsic: true,
                 do_intrinsic: false,
+                do_extrinsic: true,
+                pattern_cols: 5,
+                pattern_rows: 7,
+                square_size_m: 0.0285,
             }),
         };
         let resp = grpc_client::calibrate(&mut client, req)

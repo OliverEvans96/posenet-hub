@@ -1,4 +1,4 @@
-#include "posenet-vr-hub/include/vrpn.hpp"
+#include "include/vrpn.hpp"
 
 #include <vrpn_Connection.h>
 

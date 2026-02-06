@@ -26,7 +26,7 @@ pub mod ffi {
     }
 
     unsafe extern "C++" {
-        include!("posenet-vr-hub/include/eigen.hpp");
+        include!("include/eigen.hpp");
 
         // Format
         fn format_mat2x(a: &Mat2X) -> UniquePtr<CxxString>;

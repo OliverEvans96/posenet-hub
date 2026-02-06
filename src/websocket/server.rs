@@ -380,8 +380,11 @@ async fn handle_ws_admin(hub: &HubServer, req: WsAdminRequest) -> String {
             let cal_req = CalibrationRequest {
                 which_camera: Some(which),
                 command: Some(CalibrateCommand {
-                    do_extrinsic,
                     do_intrinsic,
+                    do_extrinsic,
+                    pattern_cols: 5,
+                    pattern_rows: 7,
+                    square_size_m: 0.0285,
                 }),
             };
             let r = hub

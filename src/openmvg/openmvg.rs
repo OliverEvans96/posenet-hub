@@ -27,7 +27,7 @@ mod ffi {
     }
 
     unsafe extern "C++" {
-        include!("posenet-vr-hub/include/openmvg.hpp");
+        include!("include/openmvg.hpp");
 
         /// x's are landmark bearing vectors in each camera
         /// Ps are projective cameras

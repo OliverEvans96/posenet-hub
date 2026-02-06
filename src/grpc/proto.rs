@@ -466,6 +466,7 @@ impl Distribution<Image> for Standard {
     }
 }
 
+#[derive(Clone)]
 pub struct CameraUniqueIdentifier {
     pub group_name: String,
     pub camera_name: String,

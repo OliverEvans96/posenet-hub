@@ -377,8 +377,11 @@ async fn run_admin_calibrate(
     let req = grpc_client::build_calibration_request(
         group,
         camera,
-        extrinsic,
         intrinsic,
+        extrinsic,
+        None,
+        None,
+        None,
     );
     let resp = grpc_client::calibrate(client, req).await.map_err(grpc_err)?;
     println!("states: {}", resp.states.len());
