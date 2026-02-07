@@ -162,11 +162,12 @@
 
         # Build a Docker image: hubPackage (dev or release), optional extra paths, env.
         # https://github.com/moby/moby/blob/master/image/spec/v1.2.md#image-json-field-descriptions
-        mkDockerImage = { name, tag ? "latest", hubPackage, extraPaths ? [ ], env ? [ "RUST_LOG=info" ], imageName ? name }:
+        mkDockerImage = { name, tag ? "latest", hubPackage, extraPaths ? [ ], env ? [ "RUST_LOG=debug" ], imageName ? name }:
           pkgs.dockerTools.buildImage {
             inherit name tag;
             config = {
-              inherit env;
+              # Docker image spec uses "Env" (capital E); list of "KEY=value" strings.
+              Env = env;
               Cmd = [ "/bin/tini" "-g" "--" "/bin/hub-server" ];
               ExposedPorts = {
                 "50051" = { }; # gRPC
@@ -196,12 +197,11 @@
             hubPackage = packageRelease;
           };
 
-          # Debug image: dev build (CARGO_PROFILE=dev), RUST_LOG=debug, extra shell/network tools.
+          # Debug image: dev build (CARGO_PROFILE=dev), extra shell/network tools.
           dockerImageDebug = mkDockerImage {
             name = "posenet-docker-debug";
             hubPackage = packageDev;
             extraPaths = with pkgs; [ curl bind iproute2 ];
-            env = [ "RUST_LOG=debug" ];
             imageName = "image-root-debug";
           };
 
