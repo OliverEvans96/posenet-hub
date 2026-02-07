@@ -63,4 +63,5 @@ pages:
   artifacts:
     paths:
       - public
-  needs: []
+  needs:
+    - nix-build-docker-image
