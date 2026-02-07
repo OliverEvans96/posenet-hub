@@ -209,6 +209,7 @@ async fn handle_request(
 }
 
 /// HTTP server configuration.
+#[derive(Clone, Debug)]
 pub struct HttpConfig {
     pub addr: SocketAddr,
 }

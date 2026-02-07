@@ -627,26 +627,37 @@ impl HubService for HubServer {
         let snapshot_id = Uuid::new_v4().to_string();
         let timestamp = SystemTime::now();
         let poses3d = if want_pose3d && snapshots.len() >= 2 {
-            let camera_info_hm = self.camera_info.read();
-            let matrices: Vec<_> = snapshots
-                .iter()
-                .filter_map(|s| s.which_camera.as_ref())
-                .filter_map(|id| camera_info_hm.get(id))
-                .filter_map(|info| info.calibration.as_ref())
-                .filter_map(|cal| crate::triangulator::calculate_camera_matrix(cal).ok())
-                .collect();
-            if matrices.len() != snapshots.len() {
+            let (snapshots_clone, matrices_clone) = {
+                let camera_info_hm = self.camera_info.read();
+                let matrices: Vec<_> = snapshots
+                    .iter()
+                    .filter_map(|s| s.which_camera.as_ref())
+                    .filter_map(|id| camera_info_hm.get(id))
+                    .filter_map(|info| info.calibration.as_ref())
+                    .filter_map(|cal| crate::triangulator::calculate_camera_matrix(cal).ok())
+                    .collect();
+                if matrices.len() != snapshots.len() {
+                    (vec![], vec![])
+                } else {
+                    (snapshots.clone(), matrices)
+                }
+            };
+            if matrices_clone.is_empty() {
                 vec![]
             } else {
-                let groups = crate::triangulator::match_poses(
-                    &snapshots,
-                    &matrices,
-                    crate::triangulator::POSE_MATCHING_REPROJECTION_THRESHOLD_PX,
-                );
-                crate::triangulator::triangulate_matched_groups(&groups, &matrices)
-                    .into_iter()
-                    .filter_map(Result::ok)
-                    .collect()
+                tokio::task::spawn_blocking(move || {
+                    let groups = crate::triangulator::match_poses(
+                        &snapshots_clone,
+                        &matrices_clone,
+                        crate::triangulator::POSE_MATCHING_REPROJECTION_THRESHOLD_PX,
+                    );
+                    crate::triangulator::triangulate_matched_groups(&groups, &matrices_clone)
+                        .into_iter()
+                        .filter_map(Result::ok)
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .map_err(|e| Status::internal(format!("take_snapshots triangulation join: {}", e)))?
             }
         } else {
             vec![]
@@ -1074,88 +1085,84 @@ impl HubService for HubServer {
             orig_cameras.push(camera);
         }
 
-        let result =
-            ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d, message.options)
+        // Run Ceres bundle adjustment and result unpacking on a blocking thread to avoid stalling the runtime.
+        let options = message.options;
+        let response = tokio::task::spawn_blocking(move || {
+            let result = ceres_bundle_adjustment(&xs, &mut ks, &mut ts, &mut rs, &mut x3d, options)
                 .map_err(|e| Status::internal(e.to_string()))?;
 
-        if !result {
-            log::error!("Bundle adjustment failed");
-            return Err(Status::internal("Bundle adjustment failed"));
-        }
-
-        // Unpack results back into protobuf types
-        let mut cameras = Vec::with_capacity(nviews);
-        for (i, orig_camera) in orig_cameras.into_iter().enumerate() {
-            let CameraIdentifier {
-                group_name,
-                camera_name,
-            } = orig_camera
-                .which_camera
-                .ok_or(Status::invalid_argument("Missing `which_camera` field"))?;
-
-            // TODO: Get new distortion - currently just using original distortion
-            let distortion = orig_camera
-                .calibration
-                .and_then(|cal| cal.intrinsics)
-                .map(|int| int.distortion)
-                .unwrap_or_default();
-
-            // Collect view matrix from r & t
-            let r = rs[i];
-            let t = ts[i];
-            let mut c = Matrix4::identity();
-            let mut cn = c.fixed_rows_mut::<3>(0);
-            cn.fixed_columns_mut::<3>(0).copy_from(&r);
-            cn.column_mut(3).copy_from(&t);
-            // We want row-major order, but nalgebra gives us column-major,
-            // so transpose first.
-            let view_matrix = c.transpose().as_slice().to_vec();
-
-            // Collect camera matrix
-            let camera_matrix = ks[i].transpose().as_slice().to_vec();
-            let camera = CameraInfo {
-                which_camera: Some(CameraIdentifier {
-                    camera_name,
-                    group_name,
-                }),
-                calibration: Some(CalibrationParameters {
-                    extrinsics: Some(CameraExtrinsics { view_matrix }),
-                    intrinsics: Some(CameraIntrinsics {
-                        camera_matrix,
-                        distortion,
-                        rms_error: 0.0, // Not sure what to do with this
-                    }),
-                }),
-            };
-            cameras.push(camera);
-        }
-
-        // Unpack poses
-        let use_orig_scores = original_scores.len() > 0;
-        let mut poses = Vec::with_capacity(nposes);
-        for k in 0..nposes {
-            let mut spoints = Vec::with_capacity(nkeypoints);
-            for h in 0..nkeypoints {
-                let j = nkeypoints * k + h;
-                let col = x3d.column(j);
-                let point = Point3::from_slice(col.as_slice());
-                // Use scores from initial guess if provided
-                let score = if use_orig_scores {
-                    original_scores[j]
-                } else {
-                    1.0
-                };
-                let spoint = (point, score);
-                spoints.push(spoint);
+            if !result {
+                log::error!("Bundle adjustment failed");
+                return Err(Status::internal("Bundle adjustment failed"));
             }
-            // TODO: What to use for score?
-            let score = 1.0;
-            let pose: Pose3D = (spoints, score).into();
-            poses.push(pose)
-        }
 
-        // Send response
-        let response = BundleAdjustmentResponse { cameras, poses };
+            // Unpack results back into protobuf types
+            let mut cameras = Vec::with_capacity(nviews);
+            for (i, orig_camera) in orig_cameras.into_iter().enumerate() {
+                let CameraIdentifier {
+                    group_name,
+                    camera_name,
+                } = orig_camera
+                    .which_camera
+                    .ok_or(Status::invalid_argument("Missing `which_camera` field"))?;
+
+                let distortion = orig_camera
+                    .calibration
+                    .and_then(|cal| cal.intrinsics)
+                    .map(|int| int.distortion)
+                    .unwrap_or_default();
+
+                let r = rs[i];
+                let t = ts[i];
+                let mut c = Matrix4::identity();
+                let mut cn = c.fixed_rows_mut::<3>(0);
+                cn.fixed_columns_mut::<3>(0).copy_from(&r);
+                cn.column_mut(3).copy_from(&t);
+                let view_matrix = c.transpose().as_slice().to_vec();
+                let camera_matrix = ks[i].transpose().as_slice().to_vec();
+                let camera = CameraInfo {
+                    which_camera: Some(CameraIdentifier {
+                        camera_name,
+                        group_name,
+                    }),
+                    calibration: Some(CalibrationParameters {
+                        extrinsics: Some(CameraExtrinsics { view_matrix }),
+                        intrinsics: Some(CameraIntrinsics {
+                            camera_matrix,
+                            distortion,
+                            rms_error: 0.0,
+                        }),
+                    }),
+                };
+                cameras.push(camera);
+            }
+
+            let use_orig_scores = original_scores.len() > 0;
+            let mut poses = Vec::with_capacity(nposes);
+            for k in 0..nposes {
+                let mut spoints = Vec::with_capacity(nkeypoints);
+                for h in 0..nkeypoints {
+                    let j = nkeypoints * k + h;
+                    let col = x3d.column(j);
+                    let point = Point3::from_slice(col.as_slice());
+                    let score = if use_orig_scores {
+                        original_scores[j]
+                    } else {
+                        1.0
+                    };
+                    let spoint = (point, score);
+                    spoints.push(spoint);
+                }
+                let score = 1.0;
+                let pose: Pose3D = (spoints, score).into();
+                poses.push(pose)
+            }
+
+            Ok::<_, Status>(BundleAdjustmentResponse { cameras, poses })
+        })
+        .await
+        .map_err(|e| Status::internal(format!("bundle_adjustment join: {}", e)))??;
+
         log::info!("Bundle adjustment completed successfully.");
         Ok(Response::new(response))
     }
@@ -1595,6 +1602,7 @@ enum HubServerError {
     CommandTokenMissing,
 }
 
+#[derive(Clone, Debug)]
 pub struct GrpcConfig {
     addr: SocketAddr,
 }

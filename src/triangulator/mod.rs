@@ -20,7 +20,7 @@ use crate::utils::transpose_vecvec;
 mod pose_matching;
 mod pose_smoothing;
 pub use pose_matching::{group_poses_by_index, match_poses, triangulate_matched_groups, MatchedGroup};
-pub use pose_smoothing::{smooth_snapshots, SmoothingConfig};
+pub use pose_smoothing::{smooth_snapshots, Camera2DTracks, SmoothingConfig};
 
 /// Default reprojection threshold (pixels) for pose matching; pairs above this are rejected.
 pub const POSE_MATCHING_REPROJECTION_THRESHOLD_PX: f64 = 50.0;
@@ -34,6 +34,10 @@ pub struct TriangulatorConfig {
     /// Wait this long before recalculating pose
     pub poll_interval: Duration,
     pub min_cameras: usize,
+    /// Reprojection threshold (px) for pose matching; if None, use POSE_MATCHING_REPROJECTION_THRESHOLD_PX.
+    pub pose_matching_threshold_px: Option<f64>,
+    /// 2D smoothing config; if None, use SmoothingConfig::default().
+    pub smoothing: Option<SmoothingConfig>,
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +82,7 @@ pub struct PoseStreamUpdate {
     pub cameras: Vec<CameraModel>,
 }
 
+#[derive(Clone)]
 pub struct CameraState {
     pub info: CameraInfo,
     pub matrix: Matrix3x4<f64>,
@@ -89,6 +94,8 @@ impl Default for TriangulatorConfig {
             pose_expiration: Duration::from_millis(100),
             poll_interval: Duration::from_millis(16),
             min_cameras: 2,
+            pose_matching_threshold_px: None,
+            smoothing: None,
         }
     }
 }
@@ -294,6 +301,8 @@ pub fn triangulate_from_poses_and_camera_matrices_partial(
 
 pub struct Triangulator {
     config: TriangulatorConfig,
+    /// When Some, triangulate_loop will apply config updates (e.g. from Ctrl-C reload).
+    config_rx: Option<broadcast::Receiver<TriangulatorConfig>>,
     group_name: String,
     cameras_rx: UnboundedReceiver<CameraInfo>,
     snapshots_rx: UnboundedReceiver<Snapshot>,
@@ -310,8 +319,21 @@ impl Triangulator {
         snapshots_rx: UnboundedReceiver<Snapshot>,
         stream_tx: broadcast::Sender<PoseStreamUpdate>,
     ) -> Self {
+        Self::new_with_config_reload(config, None, group_name, cameras_rx, snapshots_rx, stream_tx)
+    }
+
+    /// Same as new but with an optional receiver for config reloads (Ctrl-C).
+    pub fn new_with_config_reload(
+        config: TriangulatorConfig,
+        config_rx: Option<broadcast::Receiver<TriangulatorConfig>>,
+        group_name: String,
+        cameras_rx: UnboundedReceiver<CameraInfo>,
+        snapshots_rx: UnboundedReceiver<Snapshot>,
+        stream_tx: broadcast::Sender<PoseStreamUpdate>,
+    ) -> Self {
         Self {
             config,
+            config_rx,
             group_name,
             cameras_rx,
             snapshots_rx,
@@ -324,6 +346,7 @@ impl Triangulator {
     /// Run the triangulator: spawn listen_for_poses, listen_for_cameras, and triangulate_loop; join until one errors.
     pub async fn run(self) -> Result<(), BoxError> {
         let config = self.config.clone();
+        let config_rx = self.config_rx;
         let group_name = self.group_name.clone();
         let stream_tx = self.stream_tx.clone();
         let cameras = self.cameras.clone();
@@ -350,6 +373,7 @@ impl Triangulator {
         let triangulate_handle = tokio::spawn(async move {
             Self::triangulate_loop(
                 config,
+                config_rx,
                 group_name.clone(),
                 poses_for_tri,
                 cameras_for_tri,
@@ -459,123 +483,61 @@ impl Triangulator {
     }
 
     async fn triangulate_loop(
-        config: TriangulatorConfig,
+        mut config: TriangulatorConfig,
+        mut config_rx: Option<broadcast::Receiver<TriangulatorConfig>>,
         group_name: String,
         poses: Arc<RwLock<HashMap<String, Snapshot>>>,
         cameras: Arc<RwLock<HashMap<String, CameraState>>>,
         stream_tx: broadcast::Sender<PoseStreamUpdate>,
     ) -> Result<(), BoxError> {
-        let smoothing_config = SmoothingConfig::default();
         let mut smoothing_state = HashMap::new();
 
         loop {
-            let (current, current_cameras, poses_len, poses_is_empty) = {
-                let poses_guard = poses.read();
-                let current = get_current_snapshot_impl(&config, &*poses_guard, SystemTime::now());
-                let current_cameras: Vec<String> = current
-                    .iter()
-                    .filter_map(|s| s.which_camera.as_ref().map(|w| w.camera_name.clone()))
-                    .collect();
-                let poses_len = poses_guard.len();
-                let poses_is_empty = poses_guard.is_empty();
-                (current, current_cameras, poses_len, poses_is_empty)
-            };
-            if current.is_empty() && !poses_is_empty {
-                log::debug!(
-                    "Triangulator [{}]: 1 current snapshots ({} in store) – expired or missing timestamp?",
-                    group_name,
-                    poses_len
-                );
-            } else {
-                log::debug!(
-                    "Triangulator [{}]: current snapshots: {} (cameras: {:?})",
-                    group_name,
-                    current.len(),
-                    current_cameras
-                );
+            while let Some(ref mut rx) = config_rx {
+                match rx.try_recv() {
+                    Ok(c) => {
+                        config = c;
+                        log::debug!("Triangulator [{}]: config updated (reload)", group_name);
+                    }
+                    Err(broadcast::error::TryRecvError::Lagged(n)) => {
+                        log::debug!("Triangulator [{}]: config reload lagged, skipped {} update(s)", group_name, n);
+                    }
+                    _ => break,
+                }
             }
 
-            let current_smoothed = smooth_snapshots(&current, &mut smoothing_state, &smoothing_config);
+            // Clone under read lock so CPU-heavy work can run in spawn_blocking without holding locks.
+            let (poses_clone, cameras_clone) = {
+                let p = poses.read();
+                let c = cameras.read();
+                (p.clone(), c.clone())
+            };
 
-            let camera_views: Vec<CameraView> = current_smoothed
-                .iter()
-                .filter_map(|s| {
-                    let name = s.which_camera.as_ref()?.camera_name.clone();
-                    Some(CameraView {
-                        camera_name: name,
-                        poses: s.poses.clone(),
-                    })
-                })
-                .collect();
-
-            let (camera_matrices, groups) = {
-                let cameras_guard = cameras.read();
-                match get_cameras_for_snapshots_impl(&current_smoothed, &cameras_guard) {
-                    Ok(matrices) => {
-                        let groups = match_poses(
-                            &current_smoothed,
-                            &matrices,
-                            POSE_MATCHING_REPROJECTION_THRESHOLD_PX,
-                        );
-                        (matrices, groups)
-                    }
-                    Err(e) => {
-                        log::warn!(
-                            "Triangulator [{}]: get_cameras_for_snapshots failed: {}",
-                            group_name,
-                            e
-                        );
-                        (vec![], vec![])
-                    }
+            let config_clone = config.clone();
+            let group_name_clone = group_name.clone();
+            let smoothing_state_for_blocking = smoothing_state.clone();
+            let (update, new_smoothing_state) = match tokio::task::spawn_blocking(move || {
+                triangulate_tick_blocking(
+                    config_clone,
+                    group_name_clone,
+                    poses_clone,
+                    cameras_clone,
+                    smoothing_state_for_blocking,
+                )
+            })
+            .await
+            {
+                Ok(result) => result,
+                Err(e) => {
+                    log::error!("Triangulator [{}]: spawn_blocking join error: {}", group_name, e);
+                    sleep(config.poll_interval).await;
+                    continue;
                 }
             };
-            if camera_matrices.is_empty() {
-                sleep(config.poll_interval).await;
-                continue;
-            }
 
-            let triangulated: Vec<Pose3D> = groups
-                .par_iter()
-                .filter_map(|group: &MatchedGroup| {
-                    let (poses_3d, matrices) = group.to_poses_and_matrices(&camera_matrices)?;
-                    let n_views = matrices.len();
-                    if n_views < config.min_cameras {
-                        return None;
-                    }
-                    match triangulate_from_poses_and_camera_matrices_partial(&poses_3d, &matrices) {
-                        Ok(pose3d) => {
-                            log::info!(
-                                "Triangulator [{}]: triangulated 1 pose ({} views), broadcasting",
-                                group_name,
-                                n_views
-                            );
-                            Some(pose3d)
-                        }
-                        Err(e) => {
-                            log::warn!(
-                                "Triangulator [{}]: triangulate failed ({} views): {}",
-                                group_name,
-                                n_views,
-                                e
-                            );
-                            None
-                        }
-                    }
-                })
-                .collect();
-
-            let labeled_poses = LabeledPoses3D {
-                group_name: group_name.clone(),
-                poses: triangulated,
-                time: Instant::now(),
-            };
-
-            if !current_smoothed.is_empty() {
-                let _ = stream_tx.send(PoseStreamUpdate {
-                    labeled_poses,
-                    camera_views,
-                    cameras: vec![],
-                });
+            smoothing_state = new_smoothing_state;
+            if let Some(u) = update {
+                let _ = stream_tx.send(u);
             }
 
             sleep(config.poll_interval).await;
@@ -613,20 +575,37 @@ impl Triangulator {
 }
 
 /// Filter current snapshots by pose expiration. Snapshots without a valid timestamp are skipped.
+/// Uses the most recent snapshot timestamp as the reference (not wall-clock now) so that cameras
+/// that sent slightly earlier are not dropped when another camera sends later—this keeps
+/// multiple cameras in the same update for the frontend.
 fn get_current_snapshot_impl(
     config: &TriangulatorConfig,
     poses: &HashMap<String, Snapshot>,
     now: SystemTime,
 ) -> Vec<Snapshot> {
-    poses
+    let with_ts: Vec<(SystemTime, Snapshot)> = poses
         .values()
         .filter_map(|snapshot| {
             let timestamp = snapshot.timestamp.as_ref()?;
             let snapshot_time =
                 std::convert::TryInto::<SystemTime>::try_into(timestamp.clone()).ok()?;
-            let age = now.duration_since(snapshot_time).ok()?;
+            Some((snapshot_time, snapshot.clone()))
+        })
+        .collect();
+    if with_ts.is_empty() {
+        return vec![];
+    }
+    let ref_time = with_ts
+        .iter()
+        .map(|(t, _)| *t)
+        .max()
+        .unwrap_or(now);
+    with_ts
+        .into_iter()
+        .filter_map(|(snapshot_time, snapshot)| {
+            let age = ref_time.duration_since(snapshot_time).ok()?;
             if age < config.pose_expiration {
-                Some(snapshot.clone())
+                Some(snapshot)
             } else {
                 None
             }
@@ -679,6 +658,104 @@ pub fn group_poses_and_cameras_by_user_impl(
             Ok((user_poses, camera_matrices.clone()))
         })
         .collect()
+}
+
+/// One triangulator tick: CPU-heavy work intended to run in `tokio::task::spawn_blocking`.
+/// Takes cloned poses/cameras and smoothing state; returns an optional stream update and updated smoothing state.
+pub fn triangulate_tick_blocking(
+    config: TriangulatorConfig,
+    group_name: String,
+    poses: HashMap<String, Snapshot>,
+    cameras: HashMap<String, CameraState>,
+    mut smoothing_state: HashMap<String, Camera2DTracks>,
+) -> (Option<PoseStreamUpdate>, HashMap<String, Camera2DTracks>) {
+    let now = SystemTime::now();
+    let current = get_current_snapshot_impl(&config, &poses, now);
+    if current.is_empty() {
+        return (None, smoothing_state);
+    }
+
+    let current_smoothed = match &config.smoothing {
+        Some(smoothing_config) => smooth_snapshots(&current, &mut smoothing_state, smoothing_config),
+        None => current.clone(),
+    };
+
+    let camera_views: Vec<CameraView> = current_smoothed
+        .iter()
+        .filter_map(|s| {
+            let name = s.which_camera.as_ref()?.camera_name.clone();
+            Some(CameraView {
+                camera_name: name,
+                poses: s.poses.clone(),
+            })
+        })
+        .collect();
+
+    let match_threshold_px = config
+        .pose_matching_threshold_px
+        .unwrap_or(POSE_MATCHING_REPROJECTION_THRESHOLD_PX);
+
+    let (camera_matrices, groups) = match get_cameras_for_snapshots_impl(&current_smoothed, &cameras) {
+        Ok(matrices) => {
+            let groups = match_poses(&current_smoothed, &matrices, match_threshold_px);
+            (matrices, groups)
+        }
+        Err(e) => {
+            log::warn!(
+                "Triangulator [{}]: get_cameras_for_snapshots failed: {}",
+                group_name,
+                e
+            );
+            (vec![], vec![])
+        }
+    };
+
+    if camera_matrices.is_empty() {
+        return (None, smoothing_state);
+    }
+
+    let triangulated: Vec<Pose3D> = groups
+        .par_iter()
+        .filter_map(|group: &MatchedGroup| {
+            let (poses_3d, matrices) = group.to_poses_and_matrices(&camera_matrices)?;
+            let n_views = matrices.len();
+            if n_views < config.min_cameras {
+                return None;
+            }
+            match triangulate_from_poses_and_camera_matrices_partial(&poses_3d, &matrices) {
+                Ok(pose3d) => {
+                    log::info!(
+                        "Triangulator [{}]: triangulated 1 pose ({} views), broadcasting",
+                        group_name,
+                        n_views
+                    );
+                    Some(pose3d)
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Triangulator [{}]: triangulate failed ({} views): {}",
+                        group_name,
+                        n_views,
+                        e
+                    );
+                    None
+                }
+            }
+        })
+        .collect();
+
+    let labeled_poses = LabeledPoses3D {
+        group_name,
+        poses: triangulated,
+        time: Instant::now(),
+    };
+
+    let update = PoseStreamUpdate {
+        labeled_poses,
+        camera_views,
+        cameras: vec![],
+    };
+    (Some(update), smoothing_state)
 }
 
 #[cfg(test)]
@@ -1100,6 +1177,8 @@ mod tests {
             pose_expiration: Duration::from_millis(100),
             poll_interval: Duration::from_millis(16),
             min_cameras: 2,
+            pose_matching_threshold_px: None,
+            smoothing: None,
         };
         let mut poses = HashMap::new();
         let now = SystemTime::now();

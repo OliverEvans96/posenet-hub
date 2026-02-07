@@ -23,6 +23,12 @@ const SCORE_EPSILON: f64 = 0.01;
 // -----------------------------------------------------------------------------
 
 /// Parameters for 2D pose smoothing (Kalman and association).
+///
+/// **Position-only vs velocity**: The Kalman state is (x, y) per keypoint with no velocity.
+/// Predict step: state unchanged, covariance P += process_noise (we assume static target).
+/// Update: K = P/(P+R), state += K*(z - state), P = (1-K)*P. So we only smooth position;
+/// there is no velocity component. The option `position_only` is true by default and is for
+/// future use if a constant-velocity model is added (state [x,y,vx,vy], predict x += vx*dt).
 #[derive(Debug, Clone)]
 pub struct SmoothingConfig {
     /// Base measurement variance (pixels²). r = R0 / max(score, epsilon).
@@ -37,6 +43,8 @@ pub struct SmoothingConfig {
     pub min_score_observed: f64,
     /// If 1: output last pose one more time when track unmatched then drop. If 0: drop immediately.
     pub hold_frames: u32,
+    /// When true, use position-only model (current implementation is always position-only).
+    pub position_only: bool,
 }
 
 impl Default for SmoothingConfig {
@@ -48,6 +56,7 @@ impl Default for SmoothingConfig {
             assoc_threshold_px: 120.0,
             min_score_observed: 0.2,
             hold_frames: 1,
+            position_only: true,
         }
     }
 }

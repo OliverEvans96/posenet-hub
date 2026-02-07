@@ -1,0 +1,39 @@
+# PoseNet Hub server configuration (TOML).
+# Copy to config.toml or set POSENET_CONFIG to your file path.
+# All sections and fields are optional; defaults are used when omitted.
+
+[grpc]
+bind = "0.0.0.0"
+port = 50051
+
+[http]
+bind = "0.0.0.0"
+port = 9002
+
+[websocket]
+enabled = true
+bind = "0.0.0.0"
+port = 9001
+
+[vrpn]
+enabled = false
+bind = "0.0.0.0"
+port = 3883
+device-name = "PoseNet0"
+
+[recording]
+dir = "recordings"
+
+[triangulator]
+pose-expiration-ms = 500
+poll-interval-ms = 16
+min-cameras = 2
+pose-matching-threshold-px = 50.0
+
+[smoothing]
+r0 = 100.0
+score-epsilon = 0.01
+process-noise = 4.0
+assoc-threshold-px = 120.0
+min-score-observed = 0.2
+hold-frames = 1

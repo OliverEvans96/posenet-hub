@@ -5,6 +5,7 @@ use tokio::sync::broadcast;
 use super::vrpn::{ffi, update_values};
 use crate::triangulator::LabeledPoses3D;
 
+#[derive(Clone, Debug)]
 pub struct VrpnConfig {
     device_name: String,
     addr: SocketAddr,

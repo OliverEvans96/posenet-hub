@@ -547,6 +547,7 @@ fn ping_response_to_json(r: PingResponse) -> serde_json::Value {
 }
 
 /// WebSocket server configuration.
+#[derive(Clone, Debug)]
 pub struct WebSocketConfig {
     addr: SocketAddr,
 }

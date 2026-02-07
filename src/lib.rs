@@ -3,6 +3,7 @@
 //! I'm going to improve this documentation.
 //! https://doc.rust-lang.org/rustdoc/how-to-write-documentation.html
 
+pub mod config;
 pub mod controller;
 pub mod errors;
 pub mod grpc;
