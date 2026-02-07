@@ -235,16 +235,24 @@ export function createCameraViews(container, options = {}) {
       ctx.fillStyle = '#0d1117';
       ctx.fillRect(0, 0, w, h);
     }
-    const pose = view.poses[0];
-    if (pose && pose.keypoints.length) {
-      const keypoints = pose.keypoints;
-      entry.lastKeypointPositions = keypoints
-        .map((p, i) => (p ? { index: i, x: p.x * POSE_SCALE + POSE_OFFSET_X, y: p.y * POSE_SCALE + POSE_OFFSET_Y } : null))
-        .filter((p) => p != null);
-      drawSkeleton(ctx, pose, POSE_SCALE, POSE_OFFSET_X, POSE_OFFSET_Y, highlightIndex);
-    } else {
-      entry.lastKeypointPositions = [];
+    const poses = Array.isArray(view.poses) ? view.poses : [];
+    const allKeypointPositions = [];
+    for (const pose of poses) {
+      if (pose && pose.keypoints && pose.keypoints.length) {
+        for (let i = 0; i < pose.keypoints.length; i++) {
+          const p = pose.keypoints[i];
+          if (p) {
+            allKeypointPositions.push({
+              index: i,
+              x: p.x * POSE_SCALE + POSE_OFFSET_X,
+              y: p.y * POSE_SCALE + POSE_OFFSET_Y,
+            });
+          }
+        }
+        drawSkeleton(ctx, pose, POSE_SCALE, POSE_OFFSET_X, POSE_OFFSET_Y, highlightIndex);
+      }
     }
+    entry.lastKeypointPositions = allKeypointPositions;
     ctx.restore();
   }
 
