@@ -560,6 +560,7 @@ impl HubService for HubServer {
                                     }
                                     let snapshot_for_tx = Arc::try_unwrap(arc)
                                         .unwrap_or_else(|a| (*a).clone());
+                                    // Record raw snapshot at ingress (before triangulator smoothing).
                                     if let Some(ref rec) = recording_state {
                                         rec.tee_snapshot(&snapshot_for_tx).await;
                                     }

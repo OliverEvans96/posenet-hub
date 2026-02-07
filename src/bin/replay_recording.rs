@@ -1,5 +1,9 @@
 //! Replay a recorded .pnhr file to the hub as if cameras were streaming.
 //!
+//! Recordings contain raw poses (as received from cameras). When replayed, snapshots
+//! are sent into the hub like live camera data; the server applies 2D smoothing
+//! (if enabled in config) to the replayed poses the same way it does for live streams.
+//!
 //! Registers one virtual camera per (group, camera) in the file, then when the hub
 //! sends StartStreaming, streams snapshots from the file in timestamp order.
 

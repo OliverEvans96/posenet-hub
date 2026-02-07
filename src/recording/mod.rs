@@ -1,5 +1,9 @@
 //! Recording of timestamped [image + 2D pose] snapshots to a file.
 //!
+//! We record **raw** snapshots as received from cameras (before any server-side 2D smoothing).
+//! On playback, the same snapshots are re-injected into the hub and go through the normal
+//! pipeline, so the running server applies smoothing (if enabled) to the replayed poses.
+//!
 //! File format: magic "PNHR", version 1, then for each snapshot:
 //! 4-byte little-endian length + protobuf Snapshot bytes.
 

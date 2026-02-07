@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: posenet-hub
-          image: "gitlab-registry.nrp-nautilus.io/librareome/posenet/posenet-hub/nix-docker:latest"
+          image: "gitlab-registry.nrp-nautilus.io/librareome/posenet/posenet-hub:latest"
           command: [
             "vrpn-playback",
             "-i",
