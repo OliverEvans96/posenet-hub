@@ -1,5 +1,6 @@
 stages:
   - build
+  - deploy
 
 # Build production Docker image from flake.nix and push to GitLab registry.
 # Tests run as part of the Nix build (crane buildPackage).
@@ -30,3 +31,36 @@ nix-build-docker-image:
     - IMAGE_PATH=$(realpath result)
     - skopeo copy --insecure-policy "docker-archive:$IMAGE_PATH" "docker://$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
     - skopeo copy --insecure-policy "docker://$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "docker://$CI_REGISTRY_IMAGE:latest"
+
+# Publish Rust API docs (cargo doc) to GitLab Pages. Built via Nix (crane cargoDoc); same content as build/docs.Dockerfile.
+# Runs only on main so the live site reflects the default branch. Docs are not included in the Docker image.
+pages:
+  stage: deploy
+  image: nixos/nix:2.8.0
+  only:
+    - main
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+    CACHIX_CACHE_NAME: nautilus-posenet
+  before_script:
+    - echo 'experimental-features = nix-command flakes' >> /etc/nix/nix.conf
+    - nix-env -iA nixpkgs.cachix
+    - cachix use "$CACHIX_CACHE_NAME"
+  script:
+    - cachix watch-exec $CACHIX_CACHE_NAME nix -- build '.#cargoDoc' --print-build-logs
+    - mkdir -p public
+    # crane cargoDoc installs to $out/share/<docInstallRoot> (default may be target/doc)
+    - |
+      DOCROOT="result/share"
+      if [ -f "$DOCROOT/doc/index.html" ]; then
+        cp -r "$DOCROOT/doc/"* public/
+      elif [ -f "$DOCROOT/target/doc/index.html" ]; then
+        cp -r "$DOCROOT/target/doc/"* public/
+      else
+        find "$DOCROOT" -name index.html -type f | head -1
+        cp -r "$DOCROOT/"* public/
+      fi
+  artifacts:
+    paths:
+      - public
+  needs: []
