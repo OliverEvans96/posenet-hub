@@ -4,9 +4,10 @@ stages:
 
 # Build production Docker image from flake.nix and push to GitLab registry.
 # Tests run as part of the Nix build (crane buildPackage).
+# Nix 2.27+ required for flake input `lfs = true` (self).
 nix-build-docker-image:
   stage: build
-  image: nixos/nix:2.8.0
+  image: nixos/nix:2.27.0
   except:
     refs:
       - cpp-deps
@@ -36,7 +37,7 @@ nix-build-docker-image:
 # Runs only on main so the live site reflects the default branch. Docs are not included in the Docker image.
 pages:
   stage: deploy
-  image: nixos/nix:2.8.0
+  image: nixos/nix:2.27.0
   only:
     - main
   variables:
