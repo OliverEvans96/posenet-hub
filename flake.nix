@@ -144,6 +144,14 @@
           src = packageSrc;
           cargoArtifacts = cargoArtifactsRelease;
         });
+
+        # Rust API docs (cargo doc), e.g. for GitLab Pages. Not included in Docker image.
+        cargoDoc = craneLib.cargoDoc (commonArgsDev // {
+          src = packageSrc;
+          cargoArtifacts = cargoArtifactsDev;
+          cargoDocExtraArgs = "--no-deps --document-private-items";
+        });
+
         defaultPackage = packageDev;
 
         # Pose data as a directory for Docker /data (avoids runAsRoot → no KVM required).
@@ -205,6 +213,9 @@
               curl https://github.com
             '';
           };
+
+          # Rust API docs (same as build/docs.Dockerfile output). For GitLab Pages.
+          inherit cargoDoc;
         };
         devShell = pkgs.mkShell {
           name = "rust-env";
