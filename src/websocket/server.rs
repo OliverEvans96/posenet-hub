@@ -444,6 +444,54 @@ async fn handle_ws_admin(
                 });
             r
         }
+        "StartRecording" => match recording_state {
+            None => Err(tonic::Status::failed_precondition("Recording not available")),
+            Some(rec) => {
+                let group_name = req
+                    .params
+                    .as_ref()
+                    .and_then(|p| p.get("group_name").and_then(|v| v.as_str()).map(String::from));
+                match rec.start_recording(group_name).await {
+                    Ok(path) => Ok(serde_json::json!({ "path": path })),
+                    Err(RecordingError::AlreadyRecording) => Err(tonic::Status::failed_precondition(
+                        "Recording already in progress",
+                    )),
+                    Err(e) => Err(tonic::Status::internal(e.to_string())),
+                }
+            }
+        },
+        "StopRecording" => match recording_state {
+            None => Err(tonic::Status::failed_precondition("Recording not available")),
+            Some(rec) => match rec.stop_recording().await {
+                Ok(result) => {
+                    let filename = std::path::Path::new(&result.path)
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    Ok(serde_json::json!({
+                        "path": result.path,
+                        "frame_count": result.frame_count,
+                        "filename": filename
+                    }))
+                }
+                Err(RecordingError::NotRecording) => Err(tonic::Status::failed_precondition(
+                    "No recording in progress",
+                )),
+                Err(e) => Err(tonic::Status::internal(e.to_string())),
+            },
+        },
+        "GetRecordingStatus" => match recording_state {
+            None => Err(tonic::Status::failed_precondition("Recording not available")),
+            Some(rec) => {
+                let is_recording = rec.is_recording().await;
+                let last_completed_filename = rec.last_completed_filename().await;
+                Ok(serde_json::json!({
+                    "is_recording": is_recording,
+                    "last_completed_filename": last_completed_filename
+                }))
+            }
+        },
         _ => Err(tonic::Status::invalid_argument(format!("Unknown method: {}", req.method))),
     };
     match result {

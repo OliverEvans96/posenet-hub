@@ -25,7 +25,7 @@ device-name = "PoseNet0"
 dir = "recordings"
 
 [triangulator]
-pose-expiration-ms = 500
+pose-expiration-ms = 100
 poll-interval-ms = 16
 min-cameras = 2
 pose-matching-threshold-px = 50.0
